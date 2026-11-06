@@ -70,6 +70,8 @@ export interface CharacterContextEntry {
   fields: ContextField[]
   /** 上面字段拼成的文本，就是提示词里的那一段 */
   text: string
+  /** 该带但当前没有数据的项（属性卡没填、没有物品记录……），只在界面上提示，不发给模型 */
+  gaps: string[]
 }
 
 export interface CharacterContextResult {
@@ -174,6 +176,25 @@ function overviewCell(overview: OverviewData | null | undefined, characterId: st
   return entry?.cells[index] ?? null
 }
 
+/** 该带却没内容的部分，只用于界面提示，不写进提示词 */
+function collectGaps(
+  character: Character,
+  overview: OverviewData | null | undefined,
+  chapterId: string | null,
+  chapterIndex: number
+): string[] {
+  if (chapterIndex < 0) return []
+  if (!overview) return ['人物总览还没加载完，属性 / 技能 / 随身物品这轮没带上']
+  const cell = overviewCell(overview, character.id, chapterId)
+  if (!cell || !cell.debuted) return []
+  const gaps: string[] = []
+  const hasAttribute = cell.attributes.some((attr) => attr.value !== null && String(attr.value).trim() !== '')
+  if (!hasAttribute) gaps.push('属性卡没填数值')
+  if (!cell.skills.length) gaps.push('没有技能记录')
+  if (!cell.items.length) gaps.push('没有随身物品记录')
+  return gaps
+}
+
 function buildFields(
   character: Character,
   stage: CharacterStage | null,
@@ -265,7 +286,8 @@ export function buildCharacterContext(
       stageNote: resolution.note,
       currentStageName: currentStage?.name ?? '',
       fields: [],
-      text: ''
+      text: '',
+      gaps: []
     }
 
     if (!entry.debuted) {
@@ -288,6 +310,7 @@ export function buildCharacterContext(
     })
     const head = `【${entry.name}】${entry.role ? `（${entry.role}）` : ''}${character.alias ? ` 别名：${character.alias}` : ''}`
     entry.fields = fields
+    entry.gaps = collectGaps(character, options.overview, chapterId, chapterIndex)
     entry.text = [head, ...fields.map((field) => `${field.label}：${field.value}`)].join('\n')
 
     included.push(entry)

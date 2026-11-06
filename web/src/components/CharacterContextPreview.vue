@@ -57,6 +57,7 @@ async function copyText(entry: { id: string; text: string }) {
             </template>
           </dl>
           <p v-if="!entry.fields.length" class="ctx-empty">这个人还没有填写任何设定。</p>
+          <p v-if="entry.gaps.length" class="ctx-gaps">没带上：{{ entry.gaps.join('、') }}</p>
           <div class="ctx-detail-foot">
             <span class="ctx-detail-tip">以上文字就是发给 AI 的这一段原文</span>
             <button class="ctx-copy" @click="copyText(entry)">{{ copied === entry.id ? '已复制' : '复制这段' }}</button>
@@ -189,6 +190,13 @@ async function copyText(entry: { id: string; text: string }) {
 .ctx-empty {
   margin: 0;
   color: var(--muted);
+}
+.ctx-gaps {
+  margin: 6px 0 0;
+  font-size: 10.5px;
+  line-height: 1.7;
+  color: var(--muted);
+  opacity: 0.85;
 }
 .ctx-detail-foot {
   display: flex;

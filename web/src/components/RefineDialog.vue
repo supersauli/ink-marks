@@ -408,6 +408,8 @@ async function apply() {
       const applied = await novel.appendParagraphs(texts, finalInstruction, modelName)
       if (!applied) return
     }
+    // 保留的修改要求默认显示在段落下方，避免用户以为没存下来
+    if (finalInstruction) novel.showInstructions = true
     close()
   } catch (err) {
     error.value = (err as Error).message
@@ -845,6 +847,22 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
 @media (max-width: 1240px) {
   .refine-body {
     grid-template-columns: 360px minmax(0, 1fr) clamp(300px, 26vw, 360px);
+  }
+}
+
+@media (max-width: 980px) {
+  .refine-body {
+    grid-template-columns: 340px minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(0, 42%);
+  }
+  .refine-body.no-context {
+    grid-template-rows: minmax(0, 1fr);
+  }
+  .refine-context {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    border-left: none;
+    border-top: 1px solid var(--border);
   }
 }
 
