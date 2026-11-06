@@ -1,0 +1,21 @@
+{
+  "name": "novel-studio",
+  "version": "0.1.0",
+  "private": true,
+  "description": "本地小说创作工作台：大纲 → 章节大纲 → 正文，内置大模型对话、段落精修与版本回退。",
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,web -c cyan,green \"npm run dev:server\" \"npm run dev:web\"",
+    "dev:server": "npm --workspace server run dev",
+    "dev:web": "npm --workspace web run dev",
+    "build": "npm --workspace web run build",
+    "start": "npm --workspace server run start",
+    "check": "npm --workspace web run check"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
