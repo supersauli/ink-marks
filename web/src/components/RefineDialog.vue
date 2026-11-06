@@ -14,7 +14,7 @@ import {
   type WritingContext
 } from '../utils/prompts'
 import { buildCharacterContext } from '../utils/characterContext'
-import { buildContextSections } from '../utils/contextSections'
+import { buildContextSections, buildStableContextSections, type ContextSection } from '../utils/contextSections'
 import ContextInspector from './ContextInspector.vue'
 import DiffView from './DiffView.vue'
 import ModelSelect from './ModelSelect.vue'
@@ -34,7 +34,18 @@ const running = ref(false)
 const applying = ref(false)
 const error = ref('')
 const progress = ref('')
-const options = reactive({
+interface RefineOptionValues {
+  includeOutline: boolean
+  includeCharacters: boolean
+  includeSummary: boolean
+  includeBefore: boolean
+  keepInstruction: boolean
+  includeAttributes: boolean
+  includeSkills: boolean
+  includeItems: boolean
+}
+
+const DEFAULT_OPTIONS: RefineOptionValues = {
   includeOutline: true,
   includeCharacters: true,
   includeSummary: true,
@@ -44,7 +55,108 @@ const options = reactive({
   includeAttributes: true,
   includeSkills: true,
   includeItems: true
+}
+
+const options = reactive<RefineOptionValues>({ ...DEFAULT_OPTIONS })
+
+// 勾选状态按「作品 → 章节 → 场景」记住：本章单独改过的用本章的，
+// 换到新章沿用最近一次设置，省得每章都重勾一遍。和主题 / 每页章数一样存浏览器本地。
+const OPTION_KEYS = Object.keys(DEFAULT_OPTIONS) as (keyof RefineOptionValues)[]
+const OPTION_STORAGE_PREFIX = 'moji:refine-options:'
+const optionSource = ref<'chapter' | 'scene' | 'default'>('default')
+const sceneLabels: Record<string, string> = {
+  snippet: '选中文字',
+  blocks: '段落精修',
+  'chapter-summary': '章节大纲',
+  outline: '大纲',
+  append: '续写'
+}
+const optionSourceLabel = computed(() => {
+  const scene = sceneLabels[kind.value] ?? '当前场景'
+  if (optionSource.value === 'chapter') return `本章 · ${scene} 的勾选已记住`
+  if (optionSource.value === 'scene') return '沿用上次设置（本章还没单独改过）'
+  return '默认全选，改动后会自动记住'
 })
+
+function optionStorageKey() {
+  return `${OPTION_STORAGE_PREFIX}${novel.project?.id ?? 'default'}`
+}
+function readOptionRecords(): Record<string, unknown> {
+  try {
+    const raw = localStorage.getItem(optionStorageKey())
+    const parsed: unknown = raw ? JSON.parse(raw) : null
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+    return parsed as Record<string, unknown>
+  } catch {
+    return {}
+  }
+}
+function writeOptionRecords(records: Record<string, unknown>) {
+  try {
+    localStorage.setItem(optionStorageKey(), JSON.stringify(records))
+  } catch {
+    /* 隐私模式 / 存储被禁用时忽略，不影响使用 */
+  }
+}
+function sanitizeOptions(saved: unknown): Partial<RefineOptionValues> {
+  const result: Partial<RefineOptionValues> = {}
+  if (!saved || typeof saved !== 'object') return result
+  const record = saved as Record<string, unknown>
+  for (const key of OPTION_KEYS) {
+    if (typeof record[key] === 'boolean') result[key] = record[key] as boolean
+  }
+  return result
+}
+function optionRecordKeys(value: RefineTarget) {
+  const scene = `scene:${value.kind}`
+  const chapterId = 'chapterId' in value ? value.chapterId : null
+  return { scene, chapter: chapterId ? `chapter:${chapterId}:${value.kind}` : null }
+}
+function loadOptions(value: RefineTarget): RefineOptionValues {
+  const records = readOptionRecords()
+  const keys = optionRecordKeys(value)
+  const hasChapter = Boolean(keys.chapter && records[keys.chapter])
+  optionSource.value = hasChapter ? 'chapter' : records[keys.scene] ? 'scene' : 'default'
+  return {
+    ...DEFAULT_OPTIONS,
+    ...sanitizeOptions(records[keys.scene]),
+    ...(hasChapter ? sanitizeOptions(records[keys.chapter!]) : {})
+  }
+}
+function persistOptions(value: RefineTarget) {
+  const records = readOptionRecords()
+  const keys = optionRecordKeys(value)
+  const snapshot: RefineOptionValues = { ...options }
+  records[keys.scene] = snapshot
+  if (keys.chapter) records[keys.chapter] = snapshot
+  writeOptionRecords(records)
+}
+let pausePersist = false
+function resetOptions() {
+  const value = target.value
+  pausePersist = true
+  Object.assign(options, DEFAULT_OPTIONS)
+  if (value) {
+    const records = readOptionRecords()
+    const keys = optionRecordKeys(value)
+    delete records[keys.scene]
+    if (keys.chapter) delete records[keys.chapter]
+    writeOptionRecords(records)
+    optionSource.value = 'default'
+  }
+  nextTick(() => {
+    pausePersist = false
+  })
+}
+watch(
+  options,
+  () => {
+    if (pausePersist || !target.value) return
+    persistOptions(target.value)
+    optionSource.value = optionRecordKeys(target.value).chapter ? 'chapter' : 'scene'
+  },
+  { deep: true }
+)
 
 let controller: AbortController | null = null
 const instructionRef = ref<HTMLTextAreaElement | null>(null)
@@ -63,12 +175,55 @@ const characterContext = computed(() =>
   })
 )
 
+// 全部子开关都打开时的角色设定，只用于「未勾选」页签里预览「勾上会发什么」
+const fullCharacterContext = computed(() =>
+  buildCharacterContext(novel.characters, novel.chapters, contextChapterId.value, {
+    maxLength: 6000,
+    overview: novel.overview,
+    includeAttributes: true,
+    includeSkills: true,
+    includeItems: true
+  })
+)
+
 watch(target, (value) => {
   if (value) void novel.ensureOverview()
 })
 
-// 上面勾了什么，这里就有几个页签，内容就是真正会发给模型的那几段
-const contextSections = computed(() => (target.value ? buildContextSections(writingContext(target.value)) : []))
+// 每个场景可能出现的页签，顺序固定；取消勾选只置灰，不删除
+const APPLICABLE_KEYS: Record<string, string[]> = {
+  snippet: ['outline', 'characters', 'summary', 'before', 'after', 'instruction'],
+  blocks: ['outline', 'characters', 'summary', 'before', 'after', 'instruction'],
+  'chapter-summary': ['outline', 'characters', 'summary', 'instruction'],
+  outline: ['outline', 'characters', 'instruction'],
+  append: ['outline', 'characters', 'summary', 'before', 'instruction']
+}
+
+// 页签位置固定，勾了什么只是变亮/变灰，选中项不会因为取消勾选而跳走
+const contextSections = computed<ContextSection[]>(() => {
+  const value = target.value
+  if (!value) return []
+  const actual = writingContext(value)
+  const enabledKeys = buildContextSections(actual).map((section) => section.key)
+  const instructionText = (usedInstruction.value || instruction.value.trim() || defaultInstructionFor(value)).trim()
+  if (options.keepInstruction) enabledKeys.push('instruction')
+  return buildStableContextSections({
+    keys: APPLICABLE_KEYS[value.kind] ?? APPLICABLE_KEYS.outline,
+    actual,
+    full: writingContext(value, true),
+    enabledKeys,
+    instruction: {
+      text: instructionText,
+      hint: '这段要求始终会发给 AI；「在段落上保留修改要求」只决定应用后是否把它写进段落下方与本章「修改记录」。'
+    },
+    reasons: {
+      instruction: '未勾选「在段落上保留修改要求」：要求仍会发给 AI，只是应用后不留痕。'
+    }
+  })
+})
+
+// 计数只算真正会发送的段，灰色页签不计字数
+const enabledCount = computed(() => contextSections.value.filter((section) => section.enabled !== false).length)
 
 function defaultInstructionFor(value: RefineTarget): string {
   switch (value.kind) {
@@ -200,19 +355,21 @@ function cleanOutput(raw: string): string {
   return text
 }
 
-function writingContext(value: RefineTarget): WritingContext {
+function writingContext(value: RefineTarget, forceAll = false): WritingContext {
+  const on = (flag: boolean) => forceAll || flag
   const context: WritingContext = {}
   if (novel.project) context.projectName = novel.project.name
-  if (options.includeOutline && novel.outlineText) context.outlineText = novel.outlineText.slice(0, 4200)
-  if (options.includeCharacters && characterContext.value.text) context.charactersText = characterContext.value.text
+  if (on(options.includeOutline) && novel.outlineText) context.outlineText = novel.outlineText.slice(0, 4200)
+  const charactersText = forceAll ? fullCharacterContext.value.text : characterContext.value.text
+  if (on(options.includeCharacters) && charactersText) context.charactersText = charactersText
   if (value.kind === 'outline') return context
 
   const current = chapter.value
   if (!current) return context
   context.chapterTitle = current.title
-  if (options.includeSummary && current.summary) context.chapterSummary = current.summary
+  if (on(options.includeSummary) && current.summary) context.chapterSummary = current.summary
 
-  if ((value.kind === 'snippet' || value.kind === 'blocks') && options.includeBefore) {
+  if ((value.kind === 'snippet' || value.kind === 'blocks') && on(options.includeBefore)) {
     const firstId = value.kind === 'snippet' ? value.blockId : value.blockIds[0]
     const lastId = value.kind === 'snippet' ? value.blockId : value.blockIds[value.blockIds.length - 1]
     const firstIndex = current.blocks.findIndex((block) => block.id === firstId)
@@ -232,7 +389,9 @@ function writingContext(value: RefineTarget): WritingContext {
         .slice(0, 1200)
     }
   }
-  if (value.kind === 'append') {
+  // 续写时「附带上下文段落」控制的就是末尾三段：取消勾选就不再发送，
+  // 右侧「前文」页签会置灰，模型也只看得到大纲 / 角色设定。
+  if (value.kind === 'append' && on(options.includeBefore)) {
     context.beforeText = current.blocks
       .slice(-3)
       .map((block) => block.text)
@@ -331,15 +490,15 @@ async function generate() {
       singleResult.value = cleanOutput(output)
     } else if (value.kind === 'append') {
       if (!chapter.value) throw new Error('章节还没有加载')
-      const tail = chapter.value.blocks
-        .slice(-3)
-        .map((block) => block.text)
-        .join('\n\n')
-        .slice(-1500)
+      // 末尾三段只发一份：它既是右侧「前文」页签的内容，也是续写任务的「已有正文结尾」。
+      // 从上下文副本里摘掉 beforeText，避免同一段文字在提示词里被塞两次。
+      const tail = context.beforeText ?? ''
+      const contextWithoutTail: WritingContext = { ...context }
+      delete contextWithoutTail.beforeText
       const messages = buildContinueMessages({
         instruction: text,
         chapterTitle: chapter.value.title,
-        context,
+        context: contextWithoutTail,
         tail
       })
       const output = await runMessages(messages, (full) => {
@@ -447,11 +606,12 @@ watch(
     running.value = false
     progress.value = ''
     applying.value = false
-    options.includeOutline = true
-    options.includeCharacters = true
-    options.includeSummary = true
-    options.includeBefore = true
-    options.keepInstruction = true
+    // 打开弹窗时恢复上次勾选（本章 > 上次设置 > 默认），期间不要回写存储
+    pausePersist = true
+    Object.assign(options, loadOptions(value))
+    nextTick(() => {
+      pausePersist = false
+    })
     nextTick(() => instructionRef.value?.focus())
   },
   { flush: 'post' }
@@ -520,16 +680,27 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
                 v-if="kind === 'snippet' || kind === 'blocks' || kind === 'append'"
                 class="check"
               >
-                <input v-model="options.includeBefore" type="checkbox" /> 附带上下文段落
+                <input v-model="options.includeBefore" type="checkbox" /> 附带上下文段落{{
+                  kind === 'append' ? '（末尾 3 段）' : ''
+                }}
               </label>
+              <p v-if="kind === 'append' && !options.includeBefore" class="check-note">
+                已关掉：右侧「前文」页签会置灰，AI 也看不到已有正文，续写可能接不上情节。
+              </p>
               <label class="check">
                 <input v-model="options.keepInstruction" type="checkbox" /> 在段落上保留修改要求
               </label>
+              <div class="options-memory">
+                <span>{{ optionSourceLabel }}</span>
+                <button class="link-btn" title="清除本章与该场景的记忆，恢复全选" @click="resetOptions">
+                  恢复默认
+                </button>
+              </div>
             </div>
 
             <div class="options-foot">
               <button class="link-btn" @click="contextOpen = !contextOpen">
-                {{ contextOpen ? '收起右侧上下文' : '在右侧查看上下文' }}（{{ contextSections.length }} 段）
+                {{ contextOpen ? '收起右侧上下文' : '在右侧查看上下文' }}（{{ enabledCount }} / {{ contextSections.length }} 段）
               </button>
               <span v-if="options.includeCharacters" class="options-note">
                 带入 {{ characterContext.included.length }} 人<template v-if="characterContext.excluded.length"
@@ -540,7 +711,9 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
             </div>
 
             <p class="hint">
-              应用修改前会自动生成版本快照；修改要求会保留在段落下方，并汇总进本章的「修改记录」。
+              右侧页签位置固定：取消勾选只置灰、不删除，点开灰页签还能预览「勾上之后会发什么」；只有亮着的段才计入发送字数。
+              勾选按「章节 + 场景」自动记住，换到新章会沿用上次设置，刷新页面也在；想清掉就点上面的「恢复默认」。
+              应用修改前会自动生成版本快照，修改要求会保留在段落下方并汇总进本章的「修改记录」。
             </p>
           </section>
 
@@ -594,7 +767,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
           <section v-if="contextOpen" class="refine-context">
             <div class="context-head">
               <span class="preview-title">上下文</span>
-              <span class="context-count">{{ contextSections.length }} 段</span>
+              <span class="context-count">{{ enabledCount }} / {{ contextSections.length }} 段</span>
               <button class="link-btn" @click="contextOpen = false">收起</button>
             </div>
             <ContextInspector :sections="contextSections" :character-result="characterContext" />
@@ -719,6 +892,27 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
 }
 .check input {
   accent-color: var(--accent);
+}
+.check-note {
+  margin: -3px 0 0 21px;
+  font-size: 10.5px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.options-memory {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 3px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+  font-size: 10.5px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.options-memory .link-btn {
+  flex: 0 0 auto;
 }
 .sub-options {
   display: flex;

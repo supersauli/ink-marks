@@ -154,7 +154,7 @@ export function buildContinueMessages(options: {
   const context = contextBlock(options.context)
   const prompt = `${context ? context + '\n\n' : ''}【任务】续写章节《${options.chapterTitle}》的正文。
 【已有正文结尾】
-${options.tail || '（本章还没有正文，请根据章节大纲写出开头）'}
+${options.tail || '（未附带已有正文，请依据章节大纲与角色设定续写）'}
 
 【续写要求】
 ${options.instruction}

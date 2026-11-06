@@ -11,6 +11,8 @@ const chapter = computed(() => novel.chapter)
 const blocks = computed(() => chapter.value?.blocks ?? [])
 const selectedIds = ref<string[]>([])
 const showInstructions = computed(() => novel.showInstructions)
+// 正文往下滚时，工具栏吸顶并收起左侧说明，四个按钮始终可见
+const stuck = ref(false)
 
 interface BubbleState {
   x: number
@@ -218,7 +220,9 @@ function onKeydown(event: KeyboardEvent) {
   }
 }
 
-function onScroll() {
+function onScroll(event: Event) {
+  const element = event.currentTarget as HTMLElement | null
+  stuck.value = (element?.scrollTop ?? 0) > 8
   bubble.value = null
 }
 
@@ -270,7 +274,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div v-if="chapter" class="body-pane" @scroll="onScroll">
+  <div v-if="chapter" class="body-pane" :class="{ 'has-multi': selectedIds.length }" @scroll="onScroll">
     <div v-if="selectedIds.length" class="multi-bar">
       <span>已选 {{ selectedIds.length }} 段</span>
       <div class="multi-actions">
@@ -280,7 +284,7 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="article">
-      <div class="body-toolbar">
+      <div class="body-toolbar" :class="{ 'is-stuck': stuck }">
         <span class="hint">选中文字可让 AI 改写 · Shift + 点击段号可多选</span>
         <div class="toolbar-actions">
           <button
@@ -409,13 +413,32 @@ onBeforeUnmount(() => {
 }
 
 .body-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 15;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding-bottom: 12px;
+  padding: 8px 0 12px;
   margin-bottom: 10px;
+  background: var(--surface);
   border-bottom: 1px dashed var(--border);
+  transition: padding 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
+}
+/* 多选条也吸顶，给它让出一行高度，避免两条重叠 */
+.body-pane.has-multi .body-toolbar {
+  top: 43px;
+}
+.body-toolbar.is-stuck {
+  padding: 7px 0 9px;
+  border-bottom-style: solid;
+  border-bottom-color: var(--border-strong);
+  box-shadow: var(--shadow-soft);
+}
+/* 隐藏说明文字但保留占位，四个按钮的水平位置不会在吸顶时左右跳 */
+.body-toolbar.is-stuck .hint {
+  visibility: hidden;
 }
 .toolbar-actions {
   display: flex;

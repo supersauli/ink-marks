@@ -13,11 +13,18 @@ const activeKey = ref('')
 const mode = ref<'cards' | 'raw'>('cards')
 const copied = ref(false)
 
+// enabled 缺省视为启用（对话栏仍只传真正会发送的段）
+function isEnabled(section: ContextSection) {
+  return section.enabled !== false
+}
+
+// 只按 key 列表变化重选：勾选状态改变时保留用户当前选中的页签，
+// 不会出现「一取消勾选，选中项就跳回最上面一个」。
 watch(
   () => props.sections.map((section) => section.key).join(','),
   () => {
     if (!props.sections.some((section) => section.key === activeKey.value)) {
-      activeKey.value = props.sections[0]?.key ?? ''
+      activeKey.value = props.sections.find(isEnabled)?.key ?? props.sections[0]?.key ?? ''
     }
   },
   { immediate: true }
@@ -28,7 +35,12 @@ const active = computed(
 )
 
 const activeText = computed(() => active.value?.text ?? '')
-const total = computed(() => props.sections.reduce((sum, section) => sum + sectionCharCount(section.text), 0))
+const activeMuted = computed(() => Boolean(active.value && !isEnabled(active.value)))
+const enabledSections = computed(() => props.sections.filter(isEnabled))
+// 字数只统计真正会发送的段，灰色页签不计入
+const total = computed(() =>
+  enabledSections.value.reduce((sum, section) => sum + sectionCharCount(section.text), 0)
+)
 
 async function copyActive() {
   if (!activeText.value) return
@@ -51,23 +63,30 @@ async function copyActive() {
         v-for="section in sections"
         :key="section.key"
         class="nav-item"
-        :class="{ active: section.key === activeKey }"
+        :class="{ active: section.key === activeKey, muted: !isEnabled(section) }"
         @click="activeKey = section.key"
       >
         <span class="nav-label">{{ section.label }}</span>
-        <span class="nav-count">{{ sectionCharCount(section.text) }}</span>
+        <span class="nav-count">{{ isEnabled(section) ? sectionCharCount(section.text) : '关' }}</span>
       </button>
-      <p v-if="!sections.length" class="nav-empty">上面没有勾选任何内容</p>
+      <p v-if="!sections.length" class="nav-empty">当前场景没有可用的上下文段</p>
     </nav>
 
     <div class="inspector-body">
       <header class="inspector-head">
         <span class="inspector-title">{{ active?.label || '上下文' }}</span>
+        <span v-if="active && !isEnabled(active)" class="inspector-state">未启用</span>
         <span v-if="activeText" class="inspector-meta">{{ sectionCharCount(activeText) }} 字</span>
         <button v-if="activeText" class="inspector-copy" @click="copyActive">
           {{ copied ? '已复制' : '复制这段' }}
         </button>
       </header>
+
+      <p v-if="active?.hint" class="inspector-hint">{{ active.hint }}</p>
+      <p v-if="active && !isEnabled(active)" class="inspector-disabled">
+        <span>{{ active.reason }}</span>
+        <span v-if="active.text">下面是勾上之后才会发送的内容，仅供参考。</span>
+      </p>
 
       <div v-if="activeKey === 'characters' && characterResult" class="inspector-mode">
         <button class="mode-btn" :class="{ active: mode === 'cards' }" @click="mode = 'cards'">按人查看</button>
@@ -80,11 +99,13 @@ async function copyActive() {
           :result="characterResult"
           bare
         />
-        <pre v-else-if="activeText" class="inspector-pre">{{ activeText }}</pre>
+        <pre v-else-if="activeText" class="inspector-pre" :class="{ muted: activeMuted }">{{ activeText }}</pre>
         <p v-else class="inspector-empty">这一段没有内容。</p>
       </div>
 
-      <footer class="inspector-foot">共 {{ sections.length }} 段 · {{ total }} 字</footer>
+      <footer class="inspector-foot">
+        启用 {{ enabledSections.length }} / {{ sections.length }} 段 · {{ total }} 字
+      </footer>
     </div>
   </div>
 </template>
@@ -127,6 +148,17 @@ async function copyActive() {
   border-color: var(--accent);
   background: var(--surface);
   color: var(--accent);
+}
+/* 没勾选 / 没内容的段保留位置，只置灰，避免选中项突然消失 */
+.nav-item.muted {
+  color: var(--muted);
+  opacity: 0.6;
+}
+.nav-item.muted.active {
+  border-color: var(--border-strong);
+  background: var(--surface-2);
+  color: var(--muted);
+  opacity: 0.9;
 }
 .nav-label {
   flex: 1;
@@ -186,6 +218,35 @@ async function copyActive() {
 .inspector-copy:hover {
   text-decoration: underline;
 }
+.inspector-state {
+  font-size: 10px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 1px 5px;
+}
+.inspector-hint {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 8px 16px 0;
+  font-size: 10.5px;
+  line-height: 1.65;
+  color: var(--muted);
+}
+.inspector-disabled {
+  flex: 0 0 auto;
+  margin: 8px 16px 0;
+  padding: 7px 10px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 7px;
+  background: var(--surface-2);
+  font-size: 10.5px;
+  line-height: 1.7;
+  color: var(--muted);
+}
+.inspector-disabled span {
+  display: block;
+}
 .inspector-mode {
   flex: 0 0 auto;
   display: flex;
@@ -220,6 +281,9 @@ async function copyActive() {
   color: var(--ink-soft);
   white-space: pre-wrap;
   word-break: break-word;
+}
+.inspector-pre.muted {
+  opacity: 0.55;
 }
 .inspector-empty {
   margin: 0;
