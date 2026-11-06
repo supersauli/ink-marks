@@ -15,7 +15,7 @@ import {
 } from '../utils/prompts'
 import { buildCharacterContext } from '../utils/characterContext'
 import { buildContextSections } from '../utils/contextSections'
-import ContextPreviewDialog from './ContextPreviewDialog.vue'
+import ContextInspector from './ContextInspector.vue'
 import DiffView from './DiffView.vue'
 import ModelSelect from './ModelSelect.vue'
 
@@ -44,7 +44,8 @@ const options = reactive({
 
 let controller: AbortController | null = null
 const instructionRef = ref<HTMLTextAreaElement | null>(null)
-const showContextDialog = ref(false)
+// 右侧面板：结果预览 / 上下文检查器共用一块地方，不弹新窗口
+const rightTab = ref<'result' | 'context'>('result')
 
 // 角色设定按「当前章节」解析：只看该章已登场的角色，每人取该章生效的阶段
 const contextChapterId = computed(() => (kind.value === 'outline' ? null : chapter.value?.id ?? null))
@@ -61,9 +62,6 @@ watch(target, (value) => {
 
 // 上面勾了什么，这里就有几个页签，内容就是真正会发给模型的那几段
 const contextSections = computed(() => (target.value ? buildContextSections(writingContext(target.value)) : []))
-const contextSubtitle = computed(() =>
-  [characterContext.value.chapterLabel, target.value ? dialogTitle.value : ''].filter(Boolean).join(' · ')
-)
 
 function defaultInstructionFor(value: RefineTarget): string {
   switch (value.kind) {
@@ -172,6 +170,11 @@ const hasResult = computed(() => {
   if (!value) return false
   if (value.kind === 'blocks') return results.value.some((item) => item.trim())
   return Boolean(singleResult.value.trim())
+})
+
+// 一有结果就切回结果预览
+watch(hasResult, (value) => {
+  if (value) rightTab.value = 'result'
 })
 
 const canApply = computed(() => hasResult.value && !running.value && !applying.value)
@@ -424,7 +427,13 @@ function close() {
 }
 
 function onKeydown(event: KeyboardEvent) {
-  if (event.key === 'Escape' && target.value) close()
+  if (event.key !== 'Escape' || !target.value) return
+  // 正在看上下文时，Esc 只退回结果预览，不会把整个续写界面关掉
+  if (rightTab.value === 'context') {
+    rightTab.value = 'result'
+    return
+  }
+  close()
 }
 
 watch(
@@ -506,8 +515,8 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
             </div>
 
             <div class="options-foot">
-              <button class="link-btn" @click="showContextDialog = true">
-                查看将发送的全部内容（{{ contextSections.length }} 段）
+              <button class="link-btn" @click="rightTab = 'context'">
+                在右侧查看上下文（{{ contextSections.length }} 段）
               </button>
               <span v-if="options.includeCharacters" class="options-note">
                 带入 {{ characterContext.included.length }} 人<template v-if="characterContext.excluded.length"
@@ -524,16 +533,34 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
 
           <section class="refine-preview">
             <div class="preview-head">
-              <span class="preview-title">
-                {{ running ? progress || 'AI 正在修改…' : hasResult ? '修改预览' : '修改预览' }}
-              </span>
-              <span v-if="hasResult && !running" class="preview-legend">
+              <div class="preview-switch">
+                <button
+                  class="preview-tab"
+                  :class="{ active: rightTab === 'result' }"
+                  @click="rightTab = 'result'"
+                >
+                  {{ running ? progress || 'AI 正在修改…' : '修改预览' }}
+                </button>
+                <button
+                  class="preview-tab"
+                  :class="{ active: rightTab === 'context' }"
+                  @click="rightTab = 'context'"
+                >
+                  上下文
+                  <span class="preview-tab-count">{{ contextSections.length }}</span>
+                </button>
+              </div>
+              <span v-if="rightTab === 'result' && hasResult && !running" class="preview-legend">
                 <span class="legend-del">删除</span>
                 <span class="legend-add">新增</span>
               </span>
             </div>
 
-            <div class="preview-body scroll-y">
+            <div v-if="rightTab === 'context'" class="preview-context">
+              <ContextInspector :sections="contextSections" :character-result="characterContext" />
+            </div>
+
+            <div v-show="rightTab === 'result'" class="preview-body scroll-y">
               <div v-if="error" class="error-box">{{ error }}</div>
 
               <div v-else-if="!hasResult && !running" class="preview-empty">
@@ -569,14 +596,6 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
             </div>
           </section>
         </div>
-
-        <ContextPreviewDialog
-          :open="showContextDialog"
-          :sections="contextSections"
-          :character-result="characterContext"
-          :subtitle="contextSubtitle"
-          @close="showContextDialog = false"
-        />
 
         <footer class="modal-foot">
           <div class="model-note">
@@ -707,13 +726,52 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 18px;
+  gap: 12px;
+  padding: 8px 14px;
   border-bottom: 1px solid var(--border);
 }
-.preview-title {
-  font-size: 12px;
-  color: var(--ink-soft);
-  letter-spacing: 0.04em;
+.preview-switch {
+  display: flex;
+  gap: 4px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.preview-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.preview-tab:hover {
+  color: var(--ink);
+}
+.preview-tab.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+.preview-tab-count {
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--surface-3);
+  font-size: 9.5px;
+  color: var(--muted);
+}
+.preview-tab.active .preview-tab-count {
+  background: var(--accent);
+  color: #fff;
+}
+.preview-context {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 .preview-legend {
   display: flex;

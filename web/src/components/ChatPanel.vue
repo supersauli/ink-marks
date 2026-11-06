@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useChatStore } from '../stores/chat'
 import { useNovelStore } from '../stores/novel'
 import { useSettingsStore } from '../stores/settings'
 import { buildChatSystemPrompt, type WritingContext } from '../utils/prompts'
 import { buildCharacterContext } from '../utils/characterContext'
 import { buildContextSections } from '../utils/contextSections'
-import ContextPreviewDialog from './ContextPreviewDialog.vue'
+import ContextInspector from './ContextInspector.vue'
 import { formatTime } from '../utils/format'
 import ModelSelect from './ModelSelect.vue'
 
@@ -19,7 +19,7 @@ const inputRef = ref<HTMLTextAreaElement | null>(null)
 const listRef = ref<HTMLDivElement | null>(null)
 const stickToBottom = ref(true)
 const contextOn = reactive({ outline: true, characters: true, summary: true, body: false, selection: true })
-const showContextDialog = ref(false)
+const showContextPanel = ref(false)
 
 // 角色设定按当前打开的章节解析，避免把后面章节的阶段写进这一章
 const characterContext = computed(() =>
@@ -59,14 +59,6 @@ const bigContextHint = computed(() => {
 
 // 勾了什么就有几个页签，内容是真正会发给模型的那几段
 const contextSections = computed(() => buildContextSections(buildContext()))
-const contextSubtitle = computed(() =>
-  [
-    characterContext.value.chapterLabel,
-    novel.project ? `《${novel.project.name}》` : ''
-  ]
-    .filter(Boolean)
-    .join(' · ')
-)
 
 const suggestions = [
   '帮我分析这一章的情节节奏是否合理',
@@ -192,7 +184,16 @@ onMounted(() => {
   resizeInput()
   scrollToBottom(true)
   void novel.ensureOverview()
+  window.addEventListener('keydown', onGlobalKey)
 })
+
+onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKey))
+
+function onGlobalKey(event: KeyboardEvent) {
+  if (event.key === 'Escape' && showContextPanel.value) {
+    showContextPanel.value = false
+  }
+}
 
 watch(
   () => novel.chapter?.id,
@@ -203,7 +204,7 @@ watch(
 </script>
 
 <template>
-  <aside class="chat-panel">
+  <aside class="chat-panel" :class="{ 'chat-wide': showContextPanel }">
     <header class="chat-head">
       <div class="chat-title">
         <span class="chat-dot" />
@@ -265,7 +266,15 @@ watch(
       </button>
     </div>
 
-    <div ref="listRef" class="chat-messages scroll-y" @scroll="onListScroll">
+    <div v-if="showContextPanel" class="chat-context-panel">
+      <div class="chat-context-head">
+        <span class="chat-context-title">将发送的上下文</span>
+        <button class="link-btn" @click="showContextPanel = false">返回对话</button>
+      </div>
+      <ContextInspector :sections="contextSections" :character-result="characterContext" />
+    </div>
+
+    <div v-else ref="listRef" class="chat-messages scroll-y" @scroll="onListScroll">
       <div v-if="!chat.messages.length" class="chat-empty">
         <div class="empty-mark">✦</div>
         <p class="empty-title">和 AI 一起打磨这部小说</p>
@@ -315,7 +324,7 @@ watch(
         @keydown="onKeydown"
       />
       <div class="composer-foot">
-        <button class="context-hint context-toggle" @click="showContextDialog = true">
+        <button class="context-hint context-toggle" @click="showContextPanel = true">
           {{ bigContextHint }}
           <span class="context-toggle-mark">查看</span>
         </button>
@@ -325,14 +334,6 @@ watch(
         </div>
       </div>
     </div>
-
-    <ContextPreviewDialog
-      :open="showContextDialog"
-      :sections="contextSections"
-      :character-result="characterContext"
-      :subtitle="contextSubtitle"
-      @close="showContextDialog = false"
-    />
   </aside>
 </template>
 
@@ -344,6 +345,43 @@ watch(
   flex: 0 0 360px;
   border-left: 1px solid var(--border);
   background: var(--surface);
+  min-height: 0;
+  transition: width 0.18s ease, flex-basis 0.18s ease;
+}
+.chat-wide {
+  width: 500px;
+  flex: 0 0 500px;
+}
+.chat-context-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.chat-context-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.chat-context-title {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+}
+.chat-context-head .link-btn {
+  margin-left: auto;
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--accent);
+  font-size: 11px;
+}
+.chat-context-panel :deep(.inspector) {
+  flex: 1;
   min-height: 0;
 }
 
