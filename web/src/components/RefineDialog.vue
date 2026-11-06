@@ -39,7 +39,11 @@ const options = reactive({
   includeCharacters: true,
   includeSummary: true,
   includeBefore: true,
-  keepInstruction: true
+  keepInstruction: true,
+  // 角色设定里更细的三项：打斗时打开，日常可以关掉
+  includeAttributes: true,
+  includeSkills: true,
+  includeItems: true
 })
 
 let controller: AbortController | null = null
@@ -52,7 +56,10 @@ const contextChapterId = computed(() => (kind.value === 'outline' ? null : chapt
 const characterContext = computed(() =>
   buildCharacterContext(novel.characters, novel.chapters, contextChapterId.value, {
     maxLength: 6000,
-    overview: novel.overview
+    overview: novel.overview,
+    includeAttributes: options.includeAttributes,
+    includeSkills: options.includeSkills,
+    includeItems: options.includeItems
   })
 )
 
@@ -491,6 +498,21 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
                   kind === 'outline' ? '当前阶段' : '按本章阶段'
                 }}）
               </label>
+              <div class="sub-options" :class="{ 'sub-off': !options.includeCharacters }">
+                <label class="check sub">
+                  <input v-model="options.includeAttributes" type="checkbox" :disabled="!options.includeCharacters" />
+                  属性
+                </label>
+                <label class="check sub">
+                  <input v-model="options.includeSkills" type="checkbox" :disabled="!options.includeCharacters" />
+                  技能
+                </label>
+                <label class="check sub">
+                  <input v-model="options.includeItems" type="checkbox" :disabled="!options.includeCharacters" />
+                  随身物品
+                </label>
+                <span class="sub-note">写打斗时打开，日常可以关掉</span>
+              </div>
               <label v-if="kind !== 'outline'" class="check">
                 <input v-model="options.includeSummary" type="checkbox" /> 附带章节大纲
               </label>
@@ -697,6 +719,28 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
 }
 .check input {
   accent-color: var(--accent);
+}
+.sub-options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  margin: -2px 0 2px 22px;
+}
+.check.sub {
+  gap: 5px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.sub-note {
+  flex: 1 0 100%;
+  margin-top: 1px;
+  font-size: 10px;
+  color: var(--muted);
+  opacity: 0.8;
+}
+.sub-off {
+  opacity: 0.45;
 }
 .options-foot {
   display: flex;

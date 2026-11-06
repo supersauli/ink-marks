@@ -8,12 +8,13 @@
     "web"
   ],
   "scripts": {
-    "dev": "concurrently -n api,web -c cyan,green \"npm run dev:server\" \"npm run dev:web\"",
-    "dev:server": "npm --workspace server run dev",
-    "dev:web": "npm --workspace web run dev",
+    "start": "npm run build && npm --workspace server run start",
+    "serve": "npm --workspace server run start",
     "build": "npm --workspace web run build",
-    "start": "npm --workspace server run start",
-    "check": "npm --workspace web run check"
+    "check": "npm --workspace web run check",
+    "dev:hot": "concurrently -n api,web -c cyan,green \"npm run dev:server\" \"npm run dev:web\"",
+    "dev:server": "npm --workspace server run dev",
+    "dev:web": "npm --workspace web run dev"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

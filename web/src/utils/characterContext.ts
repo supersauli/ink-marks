@@ -96,6 +96,12 @@ interface Options {
   maxLength?: number
   /** 人物总览数据：有的话会带上「该章属性 / 随身物品」 */
   overview?: OverviewData | null
+  /** 是否带该章属性（默认带） */
+  includeAttributes?: boolean
+  /** 是否带该章技能（默认带） */
+  includeSkills?: boolean
+  /** 是否带该章随身物品（默认带） */
+  includeItems?: boolean
 }
 
 function chapterPositions(chapters: ChapterMeta[]) {
@@ -181,17 +187,21 @@ function collectGaps(
   character: Character,
   overview: OverviewData | null | undefined,
   chapterId: string | null,
-  chapterIndex: number
+  chapterIndex: number,
+  flags: { attributes: boolean; skills: boolean; items: boolean }
 ): string[] {
   if (chapterIndex < 0) return []
+  if (!flags.attributes && !flags.skills && !flags.items) return []
   if (!overview) return ['人物总览还没加载完，属性 / 技能 / 随身物品这轮没带上']
   const cell = overviewCell(overview, character.id, chapterId)
   if (!cell || !cell.debuted) return []
   const gaps: string[] = []
-  const hasAttribute = cell.attributes.some((attr) => attr.value !== null && String(attr.value).trim() !== '')
-  if (!hasAttribute) gaps.push('属性卡没填数值')
-  if (!cell.skills.length) gaps.push('没有技能记录')
-  if (!cell.items.length) gaps.push('没有随身物品记录')
+  if (flags.attributes) {
+    const hasAttribute = cell.attributes.some((attr) => attr.value !== null && String(attr.value).trim() !== '')
+    if (!hasAttribute) gaps.push('属性卡没填数值')
+  }
+  if (flags.skills && !cell.skills.length) gaps.push('没有技能记录')
+  if (flags.items && !cell.items.length) gaps.push('没有随身物品记录')
   return gaps
 }
 
@@ -204,6 +214,9 @@ function buildFields(
     notesLimit: number
     overview?: OverviewData | null
     chapterId: string | null
+    includeAttributes: boolean
+    includeSkills: boolean
+    includeItems: boolean
   }
 ): ContextField[] {
   const fields: ContextField[] = []
@@ -229,14 +242,20 @@ function buildFields(
 
   const cell = overviewCell(options.overview, character.id, options.chapterId)
   if (cell?.debuted) {
-    const attributes = cell.attributes
-      .filter((attr) => attr.value !== null && String(attr.value).trim() !== '')
-      .map((attr) => `${attr.label} ${attr.value}${attr.unit ?? ''}`)
-    if (attributes.length) push('该章属性', attributes.join('、'))
-    const items = cell.items.map((item) => `${item.name}（${item.status}）`)
-    if (items.length) push('随身物品', items.join('、'))
-    const skills = cell.skills.map((skill) => `${skill.name}${skill.level ? ` ${skill.level}` : ''}`)
-    if (skills.length) push('该章可用技能', skills.join('、'))
+    if (options.includeAttributes) {
+      const attributes = cell.attributes
+        .filter((attr) => attr.value !== null && String(attr.value).trim() !== '')
+        .map((attr) => `${attr.label} ${attr.value}${attr.unit ?? ''}`)
+      if (attributes.length) push('该章属性', attributes.join('、'))
+    }
+    if (options.includeItems) {
+      const items = cell.items.map((item) => `${item.name}（${item.status}）`)
+      if (items.length) push('随身物品', items.join('、'))
+    }
+    if (options.includeSkills) {
+      const skills = cell.skills.map((skill) => `${skill.name}${skill.level ? ` ${skill.level}` : ''}`)
+      if (skills.length) push('该章可用技能', skills.join('、'))
+    }
   }
 
   push('备注', clip(character.notes, options.notesLimit))
@@ -257,6 +276,9 @@ export function buildCharacterContext(
   const backgroundLimit = options.backgroundLimit ?? 420
   const notesLimit = options.notesLimit ?? 200
   const maxLength = options.maxLength ?? 6000
+  const includeAttributes = options.includeAttributes !== false
+  const includeSkills = options.includeSkills !== false
+  const includeItems = options.includeItems !== false
   const positions = chapterPositions(chapters)
   const chapterIndex = chapterId && positions.has(chapterId) ? (positions.get(chapterId) as number) : -1
   const chapter = chapterIndex >= 0 ? chapters[chapterIndex] : null
@@ -306,11 +328,18 @@ export function buildCharacterContext(
       backgroundLimit,
       notesLimit,
       overview: options.overview,
-      chapterId
+      chapterId,
+      includeAttributes,
+      includeSkills,
+      includeItems
     })
     const head = `【${entry.name}】${entry.role ? `（${entry.role}）` : ''}${character.alias ? ` 别名：${character.alias}` : ''}`
     entry.fields = fields
-    entry.gaps = collectGaps(character, options.overview, chapterId, chapterIndex)
+    entry.gaps = collectGaps(character, options.overview, chapterId, chapterIndex, {
+      attributes: includeAttributes,
+      skills: includeSkills,
+      items: includeItems
+    })
     entry.text = [head, ...fields.map((field) => `${field.label}：${field.value}`)].join('\n')
 
     included.push(entry)

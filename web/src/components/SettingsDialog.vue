@@ -4,6 +4,9 @@ import { PROVIDER_PRESETS, useSettingsStore } from '../stores/settings'
 
 const settings = useSettingsStore()
 
+// 一眼看出当前页面是不是最新构建
+const buildTime = typeof __BUILD_TIME__ === 'string' ? __BUILD_TIME__ : '开发模式'
+
 const selectedId = ref(settings.providers[0]?.id ?? '')
 const provider = computed(() => settings.providers.find((item) => item.id === selectedId.value) ?? null)
 
@@ -465,6 +468,7 @@ function close() {
         </div>
 
         <footer class="modal-foot">
+          <span class="build-stamp">构建于 {{ buildTime }}</span>
           <span class="hint">提示：添加模型后，可在顶栏下拉框中切换当前使用的模型。</span>
           <button class="btn" @click="close">关闭</button>
         </footer>
@@ -556,6 +560,12 @@ function close() {
 .preset-hint {
   margin: -2px 0 2px;
   font-size: 11px;
+}
+.build-stamp {
+  margin-right: auto;
+  font-size: 10.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .provider-detail {
