@@ -98,7 +98,7 @@ async function copyActive() {
 }
 
 .inspector-nav {
-  flex: 0 0 148px;
+  flex: 0 0 118px;
   display: flex;
   flex-direction: column;
   gap: 2px;

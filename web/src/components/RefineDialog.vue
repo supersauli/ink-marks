@@ -44,8 +44,8 @@ const options = reactive({
 
 let controller: AbortController | null = null
 const instructionRef = ref<HTMLTextAreaElement | null>(null)
-// 右侧面板：结果预览 / 上下文检查器共用一块地方，不弹新窗口
-const rightTab = ref<'result' | 'context'>('result')
+// 右侧上下文栏：默认展开，可收起，和修改预览并排显示
+const contextOpen = ref(true)
 
 // 角色设定按「当前章节」解析：只看该章已登场的角色，每人取该章生效的阶段
 const contextChapterId = computed(() => (kind.value === 'outline' ? null : chapter.value?.id ?? null))
@@ -170,11 +170,6 @@ const hasResult = computed(() => {
   if (!value) return false
   if (value.kind === 'blocks') return results.value.some((item) => item.trim())
   return Boolean(singleResult.value.trim())
-})
-
-// 一有结果就切回结果预览
-watch(hasResult, (value) => {
-  if (value) rightTab.value = 'result'
 })
 
 const canApply = computed(() => hasResult.value && !running.value && !applying.value)
@@ -427,13 +422,7 @@ function close() {
 }
 
 function onKeydown(event: KeyboardEvent) {
-  if (event.key !== 'Escape' || !target.value) return
-  // 正在看上下文时，Esc 只退回结果预览，不会把整个续写界面关掉
-  if (rightTab.value === 'context') {
-    rightTab.value = 'result'
-    return
-  }
-  close()
+  if (event.key === 'Escape' && target.value) close()
 }
 
 watch(
@@ -475,7 +464,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
           <button class="btn btn-icon btn-ghost" title="关闭" @click="close">✕</button>
         </header>
 
-        <div class="refine-body">
+        <div class="refine-body" :class="{ 'no-context': !contextOpen }">
           <section class="refine-form">
             <label class="label" for="refine-instruction">你的修改要求</label>
             <textarea
@@ -515,8 +504,8 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
             </div>
 
             <div class="options-foot">
-              <button class="link-btn" @click="rightTab = 'context'">
-                在右侧查看上下文（{{ contextSections.length }} 段）
+              <button class="link-btn" @click="contextOpen = !contextOpen">
+                {{ contextOpen ? '收起右侧上下文' : '在右侧查看上下文' }}（{{ contextSections.length }} 段）
               </button>
               <span v-if="options.includeCharacters" class="options-note">
                 带入 {{ characterContext.included.length }} 人<template v-if="characterContext.excluded.length"
@@ -533,34 +522,16 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
 
           <section class="refine-preview">
             <div class="preview-head">
-              <div class="preview-switch">
-                <button
-                  class="preview-tab"
-                  :class="{ active: rightTab === 'result' }"
-                  @click="rightTab = 'result'"
-                >
-                  {{ running ? progress || 'AI 正在修改…' : '修改预览' }}
-                </button>
-                <button
-                  class="preview-tab"
-                  :class="{ active: rightTab === 'context' }"
-                  @click="rightTab = 'context'"
-                >
-                  上下文
-                  <span class="preview-tab-count">{{ contextSections.length }}</span>
-                </button>
-              </div>
-              <span v-if="rightTab === 'result' && hasResult && !running" class="preview-legend">
+              <span class="preview-title">
+                {{ running ? progress || 'AI 正在修改…' : '修改预览' }}
+              </span>
+              <span v-if="hasResult && !running" class="preview-legend">
                 <span class="legend-del">删除</span>
                 <span class="legend-add">新增</span>
               </span>
             </div>
 
-            <div v-if="rightTab === 'context'" class="preview-context">
-              <ContextInspector :sections="contextSections" :character-result="characterContext" />
-            </div>
-
-            <div v-show="rightTab === 'result'" class="preview-body scroll-y">
+            <div class="preview-body scroll-y">
               <div v-if="error" class="error-box">{{ error }}</div>
 
               <div v-else-if="!hasResult && !running" class="preview-empty">
@@ -595,6 +566,15 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
               </template>
             </div>
           </section>
+
+          <section v-if="contextOpen" class="refine-context">
+            <div class="context-head">
+              <span class="preview-title">上下文</span>
+              <span class="context-count">{{ contextSections.length }} 段</span>
+              <button class="link-btn" @click="contextOpen = false">收起</button>
+            </div>
+            <ContextInspector :sections="contextSections" :character-result="characterContext" />
+          </section>
         </div>
 
         <footer class="modal-foot">
@@ -618,7 +598,8 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
 
 <style scoped>
 .refine-modal {
-  max-width: 1120px;
+  width: 96vw;
+  max-width: 1560px;
 }
 
 .head-text {
@@ -633,12 +614,43 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
 
 .refine-body {
   display: grid;
-  grid-template-columns: 440px minmax(0, 1fr);
+  grid-template-columns: 400px minmax(0, 1fr) clamp(380px, 32vw, 540px);
+  grid-template-rows: minmax(0, 1fr);
   gap: 0;
-  height: calc(100vh - 220px);
-  min-height: 380px;
-  max-height: calc(100vh - 220px);
+  height: calc(92vh - 140px);
+  min-height: 420px;
+  max-height: calc(92vh - 140px);
   overflow: hidden;
+}
+.refine-body.no-context {
+  grid-template-columns: 400px minmax(0, 1fr);
+}
+.refine-context {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-left: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.context-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.context-count {
+  font-size: 10.5px;
+  color: var(--muted);
+}
+.context-head .link-btn {
+  margin-left: auto;
+}
+.refine-context :deep(.inspector) {
+  flex: 1;
+  min-height: 0;
 }
 
 .refine-form {
@@ -720,6 +732,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
   background: var(--surface-2);
 }
 .preview-head {
@@ -730,48 +743,11 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
   padding: 8px 14px;
   border-bottom: 1px solid var(--border);
 }
-.preview-switch {
-  display: flex;
-  gap: 4px;
-  padding: 2px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface);
-}
-.preview-tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 10px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
+.preview-title {
   font-size: 11.5px;
-  color: var(--muted);
-}
-.preview-tab:hover {
-  color: var(--ink);
-}
-.preview-tab.active {
-  background: var(--accent-soft);
-  color: var(--accent);
   font-weight: 600;
-}
-.preview-tab-count {
-  padding: 0 4px;
-  border-radius: 4px;
-  background: var(--surface-3);
-  font-size: 9.5px;
-  color: var(--muted);
-}
-.preview-tab.active .preview-tab-count {
-  background: var(--accent);
-  color: #fff;
-}
-.preview-context {
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
 }
 .preview-legend {
   display: flex;
@@ -866,7 +842,13 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
   gap: 8px;
 }
 
-@media (max-width: 820px) {
+@media (max-width: 1240px) {
+  .refine-body {
+    grid-template-columns: 360px minmax(0, 1fr) clamp(300px, 26vw, 360px);
+  }
+}
+
+@media (max-width: 860px) {
   .refine-body {
     grid-template-columns: 1fr;
     grid-template-rows: auto 1fr;
@@ -876,6 +858,9 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
     border-right: none;
     border-bottom: 1px solid var(--border);
     max-height: 44vh;
+  }
+  .refine-context {
+    display: none;
   }
 }
 </style>
