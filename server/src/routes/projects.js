@@ -18,16 +18,13 @@ router.post('/', (req, res) => {
     id: newId(),
     name: trimTitle(body.name, '未命名作品'),
     description: str(body.description),
+    styleGuide: str(body.styleGuide),
     createdAt: t,
     updatedAt: t
   }
-  db.prepare('INSERT INTO projects (id, name, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?)').run(
-    project.id,
-    project.name,
-    project.description,
-    t,
-    t
-  )
+  db.prepare(
+    'INSERT INTO projects (id, name, description, style_guide, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(project.id, project.name, project.description, project.styleGuide, t, t)
   const row = db.prepare('SELECT * FROM projects WHERE id = ?').get(project.id)
   res.status(201).json(mapProject(row))
 })
@@ -38,8 +35,15 @@ router.patch('/:id', (req, res) => {
   const body = req.body ?? {}
   const name = body.name === undefined ? row.name : trimTitle(body.name, row.name)
   const description = body.description === undefined ? row.description : str(body.description, row.description)
+  const styleGuide = body.styleGuide === undefined ? (row.style_guide ?? '') : str(body.styleGuide, row.style_guide ?? '')
   const t = now()
-  db.prepare('UPDATE projects SET name = ?, description = ?, updated_at = ? WHERE id = ?').run(name, description, t, row.id)
+  db.prepare('UPDATE projects SET name = ?, description = ?, style_guide = ?, updated_at = ? WHERE id = ?').run(
+    name,
+    description,
+    styleGuide,
+    t,
+    row.id
+  )
   const updated = db.prepare('SELECT * FROM projects WHERE id = ?').get(row.id)
   res.json(mapProject(updated))
 })

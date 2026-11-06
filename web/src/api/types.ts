@@ -14,6 +14,7 @@ export interface Project {
   id: string
   name: string
   description: string
+  styleGuide: string
   createdAt: string
   updatedAt: string
 }

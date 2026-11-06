@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import { useNovelStore } from '../stores/novel'
 import { formatRelative } from '../utils/format'
 
@@ -22,6 +22,25 @@ function editDescription() {
   const description = window.prompt('作品简介', novel.project.description)
   if (description !== null) void novel.updateProject({ description })
 }
+
+// 作品级写作风格：失焦即保存，所有 AI 场景自动带上，不会被导出
+const styleSaved = ref(false)
+let styleTimer: number | null = null
+
+function onStyleChange(event: Event) {
+  const value = (event.target as HTMLTextAreaElement).value
+  if (value === (novel.project?.styleGuide ?? '')) return
+  void novel.updateProject({ styleGuide: value })
+  styleSaved.value = true
+  if (styleTimer) window.clearTimeout(styleTimer)
+  styleTimer = window.setTimeout(() => {
+    styleSaved.value = false
+  }, 1800)
+}
+
+onBeforeUnmount(() => {
+  if (styleTimer) window.clearTimeout(styleTimer)
+})
 
 async function openOutline() {
   const first = novel.outlineNodes[0]
@@ -83,6 +102,23 @@ async function openLatestChapter(mode: 'chapterOutline' | 'chapter') {
           </div>
         </div>
       </div>
+
+      <section class="style-card">
+        <div class="style-head">
+          <div>
+            <h3>写作风格</h3>
+            <p>写给 AI 的全局文风要求：续写、精修、章节大纲和对话都会自动带上，不写进导出文件。</p>
+          </div>
+          <span class="style-state">{{ styleSaved ? '已保存' : '失焦自动保存' }}</span>
+        </div>
+        <textarea
+          class="style-input"
+          :value="novel.project.styleGuide"
+          rows="3"
+          placeholder="例如：第三人称限知视角；句子偏短，少用形容词；不要直接写情绪，用动作和细节暗示；避免排比和 AI 腔套话。"
+          @change="onStyleChange"
+        />
+      </section>
 
       <div class="flow">
         <article class="flow-card">
@@ -155,11 +191,65 @@ async function openLatestChapter(mode: 'chapterOutline' | 'chapter') {
 }
 .onboard,
 .hero,
+.style-card,
 .flow,
 .recent,
 .tips {
   max-width: 900px;
   margin: 0 auto;
+}
+.style-card {
+  margin-bottom: 26px;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+.style-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.style-head h3 {
+  margin: 0 0 4px;
+  font-size: 13px;
+  color: var(--ink);
+}
+.style-head p {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--muted);
+}
+.style-state {
+  flex: 0 0 auto;
+  font-size: 10.5px;
+  color: var(--muted);
+}
+.style-input {
+  display: block;
+  width: 100%;
+  min-height: 76px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  outline: none;
+  resize: vertical;
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  line-height: 1.8;
+  color: var(--ink-soft);
+}
+.style-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.style-input::placeholder {
+  color: var(--muted);
+  opacity: 0.7;
 }
 .onboard {
   display: flex;

@@ -69,6 +69,13 @@ function renameProject() {
       <button class="btn btn-icon btn-ghost" title="模型与服务商设置" @click="settings.openSettings()">⚙</button>
     </div>
 
+    <button class="btn btn-sm" title="导出整本或当前章节为 TXT / Markdown" @click="novel.openExport()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+      </svg>
+      导出
+    </button>
+
     <button
       class="btn btn-sm"
       :class="{ 'overview-on': novel.mode === 'overview' }"

@@ -2,6 +2,7 @@ export const mapProject = (row) => ({
   id: row.id,
   name: row.name,
   description: row.description,
+  styleGuide: row.style_guide ?? '',
   createdAt: row.created_at,
   updatedAt: row.updated_at
 })

@@ -18,7 +18,7 @@ const input = ref(chat.draft)
 const inputRef = ref<HTMLTextAreaElement | null>(null)
 const listRef = ref<HTMLDivElement | null>(null)
 const stickToBottom = ref(true)
-const contextOn = reactive({ outline: true, characters: true, summary: true, body: false, selection: true })
+const contextOn = reactive({ style: true, outline: true, characters: true, summary: true, body: false, selection: true })
 const showContextPanel = ref(false)
 
 // 角色设定按当前打开的章节解析，避免把后面章节的阶段写进这一章
@@ -46,6 +46,7 @@ const thinkingPreview = computed(() => {
 
 const bigContextHint = computed(() => {
   const items: string[] = []
+  if (contextOn.style && novel.project?.styleGuide?.trim()) items.push('写作风格')
   if (contextOn.outline && novel.outlineText) items.push('全书大纲')
   if (contextOn.characters && characterContext.value.text) {
     const index = characterContext.value.chapterIndex
@@ -90,6 +91,9 @@ function onListScroll() {
 function buildContext(): WritingContext {
   const context: WritingContext = {}
   if (novel.project) context.projectName = novel.project.name
+  if (contextOn.style && novel.project?.styleGuide?.trim()) {
+    context.styleText = novel.project.styleGuide.trim().slice(0, 2000)
+  }
   if (contextOn.outline && novel.outlineText) context.outlineText = novel.outlineText.slice(0, 6000)
   if (contextOn.characters && characterContext.value.text) context.charactersText = characterContext.value.text
   const current = novel.chapter
@@ -223,6 +227,15 @@ watch(
     </div>
 
     <div class="context-row">
+      <button
+        class="tag"
+        :class="{ active: contextOn.style }"
+        :disabled="!novel.project?.styleGuide?.trim()"
+        title="作品级写作风格，在首页编辑"
+        @click="contextOn.style = !contextOn.style"
+      >
+        写作风格
+      </button>
       <button class="tag" :class="{ active: contextOn.outline }" :disabled="!novel.outlineText" @click="contextOn.outline = !contextOn.outline">
         全书大纲
       </button>

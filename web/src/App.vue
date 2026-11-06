@@ -18,6 +18,7 @@ import RefineDialog from './components/RefineDialog.vue'
 import VersionDrawer from './components/VersionDrawer.vue'
 import RevisionDrawer from './components/RevisionDrawer.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
+import ExportDialog from './components/ExportDialog.vue'
 import Toast from './components/Toast.vue'
 
 const THEME_KEY = 'moji:theme'
@@ -110,6 +111,7 @@ onBeforeUnmount(() => {
     <VersionDrawer />
     <RevisionDrawer />
     <SettingsDialog />
+    <ExportDialog />
     <Toast />
   </div>
 </template>

@@ -25,6 +25,7 @@ const settings = useSettingsStore()
 const target = computed(() => novel.refineTarget)
 const chapter = computed(() => novel.chapter)
 const kind = computed(() => target.value?.kind ?? '')
+const hasStyleGuide = computed(() => Boolean(novel.project?.styleGuide?.trim()))
 
 const instruction = ref('')
 const usedInstruction = ref('')
@@ -35,6 +36,7 @@ const applying = ref(false)
 const error = ref('')
 const progress = ref('')
 interface RefineOptionValues {
+  includeStyle: boolean
   includeOutline: boolean
   includeCharacters: boolean
   includeSummary: boolean
@@ -46,6 +48,7 @@ interface RefineOptionValues {
 }
 
 const DEFAULT_OPTIONS: RefineOptionValues = {
+  includeStyle: true,
   includeOutline: true,
   includeCharacters: true,
   includeSummary: true,
@@ -192,11 +195,11 @@ watch(target, (value) => {
 
 // 每个场景可能出现的页签，顺序固定；取消勾选只置灰，不删除
 const APPLICABLE_KEYS: Record<string, string[]> = {
-  snippet: ['outline', 'characters', 'summary', 'before', 'after', 'instruction'],
-  blocks: ['outline', 'characters', 'summary', 'before', 'after', 'instruction'],
-  'chapter-summary': ['outline', 'characters', 'summary', 'instruction'],
-  outline: ['outline', 'characters', 'instruction'],
-  append: ['outline', 'characters', 'summary', 'before', 'instruction']
+  snippet: ['style', 'outline', 'characters', 'summary', 'before', 'after', 'instruction'],
+  blocks: ['style', 'outline', 'characters', 'summary', 'before', 'after', 'instruction'],
+  'chapter-summary': ['style', 'outline', 'characters', 'summary', 'instruction'],
+  outline: ['style', 'outline', 'characters', 'instruction'],
+  append: ['style', 'outline', 'characters', 'summary', 'before', 'instruction']
 }
 
 // 页签位置固定，勾了什么只是变亮/变灰，选中项不会因为取消勾选而跳走
@@ -359,6 +362,8 @@ function writingContext(value: RefineTarget, forceAll = false): WritingContext {
   const on = (flag: boolean) => forceAll || flag
   const context: WritingContext = {}
   if (novel.project) context.projectName = novel.project.name
+  const styleGuide = novel.project?.styleGuide?.trim() ?? ''
+  if (on(options.includeStyle) && styleGuide) context.styleText = styleGuide.slice(0, 2000)
   if (on(options.includeOutline) && novel.outlineText) context.outlineText = novel.outlineText.slice(0, 4200)
   const charactersText = forceAll ? fullCharacterContext.value.text : characterContext.value.text
   if (on(options.includeCharacters) && charactersText) context.charactersText = charactersText
@@ -652,6 +657,10 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
             </div>
 
             <div class="options">
+              <label class="check"><input v-model="options.includeStyle" type="checkbox" /> 附带写作风格</label>
+              <p v-if="!hasStyleGuide" class="check-note">
+                还没写写作风格：到首页「写作风格」里写一次，之后续写 / 精修 / 对话都会带上。
+              </p>
               <label class="check"><input v-model="options.includeOutline" type="checkbox" /> 附带全书大纲</label>
               <label class="check">
                 <input v-model="options.includeCharacters" type="checkbox" /> 附带角色设定（{{

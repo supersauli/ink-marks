@@ -97,6 +97,7 @@ export const useNovelStore = defineStore('novel', () => {
   const versionsTarget = ref<VersionTargetInfo | null>(null)
   const versionsOpen = ref(false)
   const revisionsOpen = ref(false)
+  const exportOpen = ref(false)
 
   const saveState = ref<SaveState>('saved')
   const showInstructions = ref(true)
@@ -580,7 +581,7 @@ export const useNovelStore = defineStore('novel', () => {
     }
   }
 
-  async function updateProject(patch: { name?: string; description?: string }) {
+  async function updateProject(patch: { name?: string; description?: string; styleGuide?: string }) {
     if (!project.value) return
     try {
       const updated = await api.updateProject(project.value.id, patch)
@@ -1647,6 +1648,14 @@ export const useNovelStore = defineStore('novel', () => {
     revisionsOpen.value = false
   }
 
+  function openExport() {
+    exportOpen.value = true
+  }
+
+  function closeExport() {
+    exportOpen.value = false
+  }
+
   async function applyBlockRevision(payload: {
     blockId: string
     revisedText: string
@@ -1898,6 +1907,7 @@ export const useNovelStore = defineStore('novel', () => {
     versionsTarget,
     versionsOpen,
     revisionsOpen,
+    exportOpen,
     saveState,
     showInstructions,
     refineTarget,
@@ -1971,6 +1981,8 @@ export const useNovelStore = defineStore('novel', () => {
     loadRevisions,
     openRevisions,
     closeRevisions,
+    openExport,
+    closeExport,
     applyBlockRevision,
     applyChapterSummary,
     applyOutlineRevision,

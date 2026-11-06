@@ -296,6 +296,8 @@ ensureColumn('characters', 'debut_chapter_id', 'TEXT REFERENCES chapters(id) ON 
 ensureColumn('character_stages', 'chapter_id', 'TEXT REFERENCES chapters(id) ON DELETE SET NULL')
 ensureColumn('attribute_logs', 'chapter_id', 'TEXT REFERENCES chapters(id) ON DELETE SET NULL')
 ensureColumn('item_events', 'chapter_id', 'TEXT REFERENCES chapters(id) ON DELETE SET NULL')
+// 作品级写作风格：写给 AI 的全局文风要求
+ensureColumn('projects', 'style_guide', "TEXT NOT NULL DEFAULT ''")
 
 function seedProviders() {
   const count = db.prepare('SELECT COUNT(*) AS c FROM providers').get().c

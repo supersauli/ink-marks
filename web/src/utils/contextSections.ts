@@ -12,6 +12,7 @@ export interface ContextSection {
 }
 
 const SECTION_DEFS: { key: string; label: string; field: keyof WritingContext }[] = [
+  { key: 'style', label: '写作风格', field: 'styleText' },
   { key: 'characters', label: '角色设定', field: 'charactersText' },
   { key: 'outline', label: '全书大纲', field: 'outlineText' },
   { key: 'summary', label: '章节大纲', field: 'chapterSummary' },

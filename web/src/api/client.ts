@@ -168,7 +168,7 @@ export const api = {
   listProjects: () => request<Project[]>('/projects'),
   createProject: (name: string, description = '') =>
     request<Project>('/projects', { method: 'POST', body: JSON.stringify({ name, description }) }),
-  updateProject: (id: string, patch: Partial<Pick<Project, 'name' | 'description'>>) =>
+  updateProject: (id: string, patch: Partial<Pick<Project, 'name' | 'description' | 'styleGuide'>>) =>
     request<Project>(`/projects/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   deleteProject: (id: string) => request<{ ok: boolean }>(`/projects/${id}`, { method: 'DELETE' }),
 

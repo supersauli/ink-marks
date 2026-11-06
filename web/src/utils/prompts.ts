@@ -5,6 +5,7 @@ export interface PromptMessage {
 
 export interface WritingContext {
   projectName?: string
+  styleText?: string
   outlineText?: string
   charactersText?: string
   chapterTitle?: string
@@ -22,7 +23,8 @@ const EDITOR_SYSTEM = `你是一位资深的中文小说编辑与写手，擅长
 2. 保持人称、叙述视角、时态、人物姓名与情节前后一致；
 3. 除非要求中明确说明，不要新增会改变剧情走向的关键情节；
 4. 若提供了角色设定，人物的言行必须符合其中「当前阶段」的性格、动机与语言习惯，不要提前写出后续阶段的成长结果；
-5. 使用简体中文，标点符合中文规范，不要出现明显的 AI 腔套话。`
+5. 若提供了【写作风格】，其中关于视角、人称、句式、语气与禁忌的要求优先级高于你自己的默认文风，必须严格遵守；
+6. 使用简体中文，标点符合中文规范，不要出现明显的 AI 腔套话。`
 
 const CHAT_SYSTEM = `你是一位陪伴作者写小说的中文创作助手。你可以讨论情节、人物动机、节奏与文风，也可以按作者要求给出改写建议。
 
@@ -31,11 +33,13 @@ const CHAT_SYSTEM = `你是一位陪伴作者写小说的中文创作助手。�
 2. 若作者提供的上下文不足以判断，先提出一个关键问题，不要凭空编造设定；
 3. 讨论人物时，先确认其「当前阶段」的性格与动机，再判断行为是否成立；
 4. 涉及改写时，先给思路，再给一小段示例；
-5. 使用简体中文。`
+5. 若提供了【写作风格】，讨论与示例文字也要符合其中的视角、语气与禁忌；
+6. 使用简体中文。`
 
 function contextBlock(context: WritingContext): string {
   const parts: string[] = []
   if (context.projectName) parts.push(`【作品】${context.projectName}`)
+  if (context.styleText) parts.push(`【写作风格】\n${context.styleText}`)
   if (context.outlineText) parts.push(`【全书大纲】\n${context.outlineText}`)
   if (context.charactersText) parts.push(`【角色设定】\n${context.charactersText}`)
   if (context.chapterTitle) parts.push(`【当前章节】${context.chapterTitle}`)
