@@ -21,27 +21,27 @@ const ITEM_FIELDS = {
   destroyedAt: 'destroyed_at'
 }
 
-function getItem(itemId) {
-  return db.prepare('SELECT * FROM items WHERE id = ?').get(itemId)
+async function getItem(itemId) {
+  return await db.prepare('SELECT * FROM items WHERE id = ?').get(itemId)
 }
 
-function validChapterId(chapterId, projectId) {
+async function validChapterId(chapterId, projectId) {
   if (!chapterId) return null
-  const row = db.prepare('SELECT id FROM chapters WHERE id = ? AND project_id = ?').get(chapterId, projectId)
+  const row = await db.prepare('SELECT id FROM chapters WHERE id = ? AND project_id = ?').get(chapterId, projectId)
   return row ? row.id : null
 }
 
-function listEvents(itemId) {
-  return db
+async function listEvents(itemId) {
+  return (await db
     .prepare('SELECT * FROM item_events WHERE item_id = ? ORDER BY created_at ASC, rowid ASC')
-    .all(itemId)
+    .all(itemId))
     .map(mapItemEvent)
 }
 
-function itemDetail(itemId) {
-  const row = getItem(itemId)
+async function itemDetail(itemId) {
+  const row = await getItem(itemId)
   if (!row) return null
-  const events = listEvents(itemId)
+  const events = await listEvents(itemId)
   const holders = []
   for (const event of events) {
     if (event.holder && !holders.includes(event.holder)) holders.push(event.holder)
@@ -50,13 +50,13 @@ function itemDetail(itemId) {
   return { ...mapItem(row), events, holders }
 }
 
-function applyEventToItem(itemId, event) {
-  const item = getItem(itemId)
+async function applyEventToItem(itemId, event) {
+  const item = await getItem(itemId)
   if (!item) return
   const status = str(event.status, item.status) || 'intact'
   const destroyed = status === 'destroyed'
   const t = now()
-  db.prepare(
+  await db.prepare(
     'UPDATE items SET status = ?, current_holder = ?, is_destroyed = ?, destroyed_by = ?, destroyed_at = ?, updated_at = ? WHERE id = ?'
   ).run(
     status,
@@ -69,24 +69,24 @@ function applyEventToItem(itemId, event) {
   )
 }
 
-router.get('/items', (req, res) => {
+router.get('/items', async (req, res) => {
   const projectId = str(req.query.projectId)
   if (!projectId) return res.status(400).json({ error: '缺少 projectId' })
-  const rows = db
+  const rows = await db
     .prepare('SELECT * FROM items WHERE project_id = ? ORDER BY sort_order ASC, created_at ASC')
     .all(projectId)
   res.json(rows.map(mapItem))
 })
 
-router.post('/items', (req, res) => {
+router.post('/items', async (req, res) => {
   const body = req.body ?? {}
   const projectId = str(body.projectId)
-  const project = db.prepare('SELECT id FROM projects WHERE id = ?').get(projectId)
+  const project = await db.prepare('SELECT id FROM projects WHERE id = ?').get(projectId)
   if (!project) return res.status(400).json({ error: '作品不存在' })
-  const maxRow = db.prepare('SELECT MAX(sort_order) AS m FROM items WHERE project_id = ?').get(projectId)
+  const maxRow = await db.prepare('SELECT MAX(sort_order) AS m FROM items WHERE project_id = ?').get(projectId)
   const id = newId()
   const t = now()
-  db.prepare(
+  await db.prepare(
     'INSERT INTO items (id, project_id, name, category, rarity, origin, reason, debut, background, notes, status, current_holder, is_destroyed, destroyed_by, destroyed_at, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   ).run(
     id,
@@ -108,18 +108,18 @@ router.post('/items', (req, res) => {
     t,
     t
   )
-  touchProject(projectId)
-  res.status(201).json(itemDetail(id))
+  await touchProject(projectId)
+  res.status(201).json(await itemDetail(id))
 })
 
-router.get('/items/:id', (req, res) => {
-  const detail = itemDetail(req.params.id)
+router.get('/items/:id', async (req, res) => {
+  const detail = await itemDetail(req.params.id)
   if (!detail) return res.status(404).json({ error: '物品不存在' })
   res.json(detail)
 })
 
-router.patch('/items/:id', (req, res) => {
-  const item = getItem(req.params.id)
+router.patch('/items/:id', async (req, res) => {
+  const item = await getItem(req.params.id)
   if (!item) return res.status(404).json({ error: '物品不存在' })
   const body = req.body ?? {}
   const updates = []
@@ -136,30 +136,30 @@ router.patch('/items/:id', (req, res) => {
   if (!updates.length) return res.json(mapItem(item))
   updates.push('updated_at = ?')
   values.push(now(), item.id)
-  db.prepare(`UPDATE items SET ${updates.join(', ')} WHERE id = ?`).run(...values)
-  touchProject(item.project_id)
-  res.json(mapItem(getItem(item.id)))
+  await db.prepare(`UPDATE items SET ${updates.join(', ')} WHERE id = ?`).run(...values)
+  await touchProject(item.project_id)
+  res.json(mapItem(await getItem(item.id)))
 })
 
-router.delete('/items/:id', (req, res) => {
-  const item = getItem(req.params.id)
+router.delete('/items/:id', async (req, res) => {
+  const item = await getItem(req.params.id)
   if (!item) return res.status(404).json({ error: '物品不存在' })
-  db.prepare('DELETE FROM attribute_values WHERE entity_type = ? AND entity_id = ?').run('item', item.id)
-  db.prepare('DELETE FROM attribute_logs WHERE entity_type = ? AND entity_id = ?').run('item', item.id)
-  db.prepare('DELETE FROM item_events WHERE item_id = ?').run(item.id)
-  db.prepare('DELETE FROM items WHERE id = ?').run(item.id)
-  touchProject(item.project_id)
+  await db.prepare('DELETE FROM attribute_values WHERE entity_type = ? AND entity_id = ?').run('item', item.id)
+  await db.prepare('DELETE FROM attribute_logs WHERE entity_type = ? AND entity_id = ?').run('item', item.id)
+  await db.prepare('DELETE FROM item_events WHERE item_id = ?').run(item.id)
+  await db.prepare('DELETE FROM items WHERE id = ?').run(item.id)
+  await touchProject(item.project_id)
   res.json({ ok: true })
 })
 
-router.post('/items/:id/events', (req, res) => {
-  const item = getItem(req.params.id)
+router.post('/items/:id/events', async (req, res) => {
+  const item = await getItem(req.params.id)
   if (!item) return res.status(404).json({ error: '物品不存在' })
   const body = req.body ?? {}
   const t = now()
   const id = newId()
-  const chapterId = validChapterId(str(body.chapterId), item.project_id)
-  db.prepare(
+  const chapterId = await validChapterId(str(body.chapterId), item.project_id)
+  await db.prepare(
     'INSERT INTO item_events (id, item_id, period, chapter_id, holder, status, destroyed_by, note, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   ).run(
     id,
@@ -174,18 +174,18 @@ router.post('/items/:id/events', (req, res) => {
     t
   )
   if (body.applyCurrent !== false) {
-    applyEventToItem(item.id, body)
+    await applyEventToItem(item.id, body)
   } else {
-    db.prepare('UPDATE items SET updated_at = ? WHERE id = ?').run(t, item.id)
+    await db.prepare('UPDATE items SET updated_at = ? WHERE id = ?').run(t, item.id)
   }
-  touchProject(item.project_id)
-  res.status(201).json(itemDetail(item.id))
+  await touchProject(item.project_id)
+  res.status(201).json(await itemDetail(item.id))
 })
 
-router.patch('/item-events/:id', (req, res) => {
-  const event = db.prepare('SELECT * FROM item_events WHERE id = ?').get(req.params.id)
+router.patch('/item-events/:id', async (req, res) => {
+  const event = await db.prepare('SELECT * FROM item_events WHERE id = ?').get(req.params.id)
   if (!event) return res.status(404).json({ error: '状态记录不存在' })
-  const item = getItem(event.item_id)
+  const item = await getItem(event.item_id)
   if (!item) return res.status(404).json({ error: '物品不存在' })
   const body = req.body ?? {}
   const updates = []
@@ -203,27 +203,27 @@ router.patch('/item-events/:id', (req, res) => {
   }
   if (body.chapterId !== undefined) {
     updates.push('chapter_id = ?')
-    values.push(validChapterId(str(body.chapterId), item.project_id))
+    values.push(await validChapterId(str(body.chapterId), item.project_id))
   }
   if (updates.length) {
     updates.push('updated_at = ?')
     values.push(now(), event.id)
-    db.prepare(`UPDATE item_events SET ${updates.join(', ')} WHERE id = ?`).run(...values)
+    await db.prepare(`UPDATE item_events SET ${updates.join(', ')} WHERE id = ?`).run(...values)
   }
-  if (body.applyCurrent !== false) applyEventToItem(item.id, { ...event, ...body })
-  touchProject(item.project_id)
-  res.json(itemDetail(item.id))
+  if (body.applyCurrent !== false) await applyEventToItem(item.id, { ...event, ...body })
+  await touchProject(item.project_id)
+  res.json(await itemDetail(item.id))
 })
 
-router.delete('/item-events/:id', (req, res) => {
-  const event = db.prepare('SELECT * FROM item_events WHERE id = ?').get(req.params.id)
+router.delete('/item-events/:id', async (req, res) => {
+  const event = await db.prepare('SELECT * FROM item_events WHERE id = ?').get(req.params.id)
   if (!event) return res.status(404).json({ error: '状态记录不存在' })
-  const item = getItem(event.item_id)
+  const item = await getItem(event.item_id)
   if (!item) return res.status(404).json({ error: '物品不存在' })
-  db.prepare('DELETE FROM item_events WHERE id = ?').run(event.id)
-  db.prepare('UPDATE items SET updated_at = ? WHERE id = ?').run(now(), item.id)
-  touchProject(item.project_id)
-  res.json(itemDetail(item.id))
+  await db.prepare('DELETE FROM item_events WHERE id = ?').run(event.id)
+  await db.prepare('UPDATE items SET updated_at = ? WHERE id = ?').run(now(), item.id)
+  await touchProject(item.project_id)
+  res.json(await itemDetail(item.id))
 })
 
 export default router

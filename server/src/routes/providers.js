@@ -7,16 +7,16 @@ import { guessContextLength } from '../usage.js'
 
 const router = Router()
 
-function listModels(providerId) {
-  return db.prepare('SELECT * FROM models WHERE provider_id = ? ORDER BY sort_order ASC, name ASC').all(providerId).map(mapModel)
+async function listModels(providerId) {
+  return (await db.prepare('SELECT * FROM models WHERE provider_id = ? ORDER BY sort_order ASC, name ASC').all(providerId)).map(mapModel)
 }
 
-function providerWithModels(row) {
-  return { ...mapProvider(row), models: listModels(row.id) }
+async function providerWithModels(row) {
+  return { ...mapProvider(row), models: await listModels(row.id) }
 }
 
-function clearDefaultModels(exceptId = '') {
-  db.prepare('UPDATE models SET is_default = 0 WHERE id != ?').run(exceptId)
+async function clearDefaultModels(exceptId = '') {
+  await db.prepare('UPDATE models SET is_default = 0 WHERE id != ?').run(exceptId)
 }
 
 // 模型级的额外请求参数（JSON 对象），用于 reasoning_effort / top_p 这类兼容差异
@@ -31,16 +31,16 @@ function normalizeExtraBody(value) {
   }
 }
 
-router.get('/providers', (req, res) => {
-  const rows = db.prepare('SELECT * FROM providers ORDER BY created_at ASC').all()
-  res.json(rows.map(providerWithModels))
+router.get('/providers', async (req, res) => {
+  const rows = await db.prepare('SELECT * FROM providers ORDER BY created_at ASC').all()
+  res.json(await Promise.all(rows.map(providerWithModels)))
 })
 
-router.post('/providers', (req, res) => {
+router.post('/providers', async (req, res) => {
   const body = req.body ?? {}
   const t = now()
   const id = newId()
-  db.prepare(
+  await db.prepare(
     'INSERT INTO providers (id, name, base_url, api_key, api_type, extra_headers, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
   ).run(
     id,
@@ -52,15 +52,15 @@ router.post('/providers', (req, res) => {
     t,
     t
   )
-  const row = db.prepare('SELECT * FROM providers WHERE id = ?').get(id)
-  res.status(201).json(providerWithModels(row))
+  const row = await db.prepare('SELECT * FROM providers WHERE id = ?').get(id)
+  res.status(201).json(await providerWithModels(row))
 })
 
-router.patch('/providers/:id', (req, res) => {
-  const row = db.prepare('SELECT * FROM providers WHERE id = ?').get(req.params.id)
+router.patch('/providers/:id', async (req, res) => {
+  const row = await db.prepare('SELECT * FROM providers WHERE id = ?').get(req.params.id)
   if (!row) return res.status(404).json({ error: '服务商不存在' })
   const body = req.body ?? {}
-  db.prepare('UPDATE providers SET name = ?, base_url = ?, api_key = ?, api_type = ?, extra_headers = ?, updated_at = ? WHERE id = ?').run(
+  await db.prepare('UPDATE providers SET name = ?, base_url = ?, api_key = ?, api_type = ?, extra_headers = ?, updated_at = ? WHERE id = ?').run(
     body.name === undefined ? row.name : trimTitle(body.name, row.name),
     body.baseUrl === undefined ? row.base_url : str(body.baseUrl, row.base_url).trim(),
     body.apiKey === undefined ? row.api_key : str(body.apiKey, row.api_key),
@@ -69,19 +69,19 @@ router.patch('/providers/:id', (req, res) => {
     now(),
     row.id
   )
-  const updated = db.prepare('SELECT * FROM providers WHERE id = ?').get(row.id)
-  res.json(providerWithModels(updated))
+  const updated = await db.prepare('SELECT * FROM providers WHERE id = ?').get(row.id)
+  res.json(await providerWithModels(updated))
 })
 
-router.delete('/providers/:id', (req, res) => {
-  const result = db.prepare('DELETE FROM providers WHERE id = ?').run(req.params.id)
+router.delete('/providers/:id', async (req, res) => {
+  const result = await db.prepare('DELETE FROM providers WHERE id = ?').run(req.params.id)
   if (!result.changes) return res.status(404).json({ error: '服务商不存在' })
   res.json({ ok: true })
 })
 
 router.post('/providers/:id/remote-models', async (req, res, next) => {
   try {
-    const row = db.prepare('SELECT * FROM providers WHERE id = ?').get(req.params.id)
+    const row = await db.prepare('SELECT * FROM providers WHERE id = ?').get(req.params.id)
     if (!row) return res.status(404).json({ error: '服务商不存在' })
     const apiKey = req.body?.apiKey
     const models = await fetchRemoteModels(row, typeof apiKey === 'string' && apiKey ? apiKey : undefined)
@@ -93,7 +93,7 @@ router.post('/providers/:id/remote-models', async (req, res, next) => {
 
 router.post('/providers/:id/test', async (req, res) => {
   try {
-    const row = db.prepare('SELECT * FROM providers WHERE id = ?').get(req.params.id)
+    const row = await db.prepare('SELECT * FROM providers WHERE id = ?').get(req.params.id)
     if (!row) return res.status(404).json({ error: '服务商不存在' })
     const apiKey = req.body?.apiKey
     const models = await fetchRemoteModels(row, typeof apiKey === 'string' && apiKey ? apiKey : undefined)
@@ -103,19 +103,19 @@ router.post('/providers/:id/test', async (req, res) => {
   }
 })
 
-router.post('/models', (req, res) => {
+router.post('/models', async (req, res) => {
   const body = req.body ?? {}
   const providerId = str(body.providerId)
-  const provider = db.prepare('SELECT * FROM providers WHERE id = ?').get(providerId)
+  const provider = await db.prepare('SELECT * FROM providers WHERE id = ?').get(providerId)
   if (!provider) return res.status(400).json({ error: '服务商不存在' })
   const name = str(body.name).trim()
   if (!name) return res.status(400).json({ error: '模型名不能为空' })
   const extraBody = normalizeExtraBody(body.extraBody ?? '{}')
   if (extraBody === null) return res.status(400).json({ error: '额外请求参数必须是合法的 JSON 对象' })
-  const row = db.prepare('SELECT MAX(sort_order) AS m FROM models WHERE provider_id = ?').get(providerId)
+  const row = await db.prepare('SELECT MAX(sort_order) AS m FROM models WHERE provider_id = ?').get(providerId)
   const id = newId()
   const isDefault = boolInt(body.isDefault)
-  db.prepare(
+  await db.prepare(
     'INSERT INTO models (id, provider_id, name, display_name, temperature, max_tokens, context_length, extra_body, is_default, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   ).run(
     id,
@@ -129,12 +129,12 @@ router.post('/models', (req, res) => {
     isDefault,
     (row?.m ?? -10) + 10
   )
-  if (isDefault) clearDefaultModels(id)
-  res.status(201).json(mapModel(db.prepare('SELECT * FROM models WHERE id = ?').get(id)))
+  if (isDefault) await clearDefaultModels(id)
+  res.status(201).json(mapModel(await db.prepare('SELECT * FROM models WHERE id = ?').get(id)))
 })
 
-router.patch('/models/:id', (req, res) => {
-  const row = db.prepare('SELECT * FROM models WHERE id = ?').get(req.params.id)
+router.patch('/models/:id', async (req, res) => {
+  const row = await db.prepare('SELECT * FROM models WHERE id = ?').get(req.params.id)
   if (!row) return res.status(404).json({ error: '模型不存在' })
   const body = req.body ?? {}
   const nextDefault = body.isDefault === undefined ? row.is_default : boolInt(body.isDefault)
@@ -144,7 +144,7 @@ router.patch('/models/:id', (req, res) => {
     if (normalized === null) return res.status(400).json({ error: '额外请求参数必须是合法的 JSON 对象' })
     extraBody = normalized
   }
-  db.prepare(
+  await db.prepare(
     'UPDATE models SET name = ?, display_name = ?, temperature = ?, max_tokens = ?, context_length = ?, extra_body = ?, is_default = ? WHERE id = ?'
   ).run(
     body.name === undefined ? row.name : trimTitle(body.name, row.name),
@@ -156,12 +156,12 @@ router.patch('/models/:id', (req, res) => {
     nextDefault,
     row.id
   )
-  if (nextDefault) clearDefaultModels(row.id)
-  res.json(mapModel(db.prepare('SELECT * FROM models WHERE id = ?').get(row.id)))
+  if (nextDefault) await clearDefaultModels(row.id)
+  res.json(mapModel(await db.prepare('SELECT * FROM models WHERE id = ?').get(row.id)))
 })
 
-router.delete('/models/:id', (req, res) => {
-  const result = db.prepare('DELETE FROM models WHERE id = ?').run(req.params.id)
+router.delete('/models/:id', async (req, res) => {
+  const result = await db.prepare('DELETE FROM models WHERE id = ?').run(req.params.id)
   if (!result.changes) return res.status(404).json({ error: '模型不存在' })
   res.json({ ok: true })
 })

@@ -1,15 +1,15 @@
 import { db } from './db.js'
 import { newId, now } from './util.js'
 
-export function touchProject(projectId) {
+export async  function touchProject(projectId) {
   if (!projectId) return
-  db.prepare('UPDATE projects SET updated_at = ? WHERE id = ?').run(now(), projectId)
+  await db.prepare('UPDATE projects SET updated_at = ? WHERE id = ?').run(now(), projectId)
 }
 
-export function chapterSnapshot(chapterId) {
-  const chapter = db.prepare('SELECT * FROM chapters WHERE id = ?').get(chapterId)
+export async  function chapterSnapshot(chapterId) {
+  const chapter = await db.prepare('SELECT * FROM chapters WHERE id = ?').get(chapterId)
   if (!chapter) return null
-  const blocks = db.prepare('SELECT * FROM blocks WHERE chapter_id = ? ORDER BY sort_order ASC, created_at ASC').all(chapterId)
+  const blocks = await db.prepare('SELECT * FROM blocks WHERE chapter_id = ? ORDER BY sort_order ASC, created_at ASC').all(chapterId)
   return {
     kind: 'chapter',
     chapter: {
@@ -28,8 +28,8 @@ export function chapterSnapshot(chapterId) {
   }
 }
 
-export function outlineSnapshot(outlineId) {
-  const outline = db.prepare('SELECT * FROM outline_items WHERE id = ?').get(outlineId)
+export async  function outlineSnapshot(outlineId) {
+  const outline = await db.prepare('SELECT * FROM outline_items WHERE id = ?').get(outlineId)
   if (!outline) return null
   return {
     kind: 'outline',
@@ -44,10 +44,10 @@ export function outlineSnapshot(outlineId) {
   }
 }
 
-export function characterSnapshot(characterId) {
-  const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(characterId)
+export async  function characterSnapshot(characterId) {
+  const character = await db.prepare('SELECT * FROM characters WHERE id = ?').get(characterId)
   if (!character) return null
-  const stages = db
+  const stages = await db
     .prepare('SELECT * FROM character_stages WHERE character_id = ? ORDER BY sort_order ASC, created_at ASC')
     .all(characterId)
   return {
@@ -81,14 +81,14 @@ export function characterSnapshot(characterId) {
   }
 }
 
-function snapshotOf(targetType, targetId) {
-  if (targetType === 'chapter') return chapterSnapshot(targetId)
-  if (targetType === 'character') return characterSnapshot(targetId)
-  return outlineSnapshot(targetId)
+async function snapshotOf(targetType, targetId) {
+  if (targetType === 'chapter') return await chapterSnapshot(targetId)
+  if (targetType === 'character') return await characterSnapshot(targetId)
+  return await outlineSnapshot(targetId)
 }
 
-function pruneVersions(targetType, targetId, keep = 100) {
-  db.prepare(
+async function pruneVersions(targetType, targetId, keep = 100) {
+  await db.prepare(
     `DELETE FROM versions
      WHERE id IN (
        SELECT id FROM versions
@@ -99,8 +99,8 @@ function pruneVersions(targetType, targetId, keep = 100) {
   ).run(targetType, targetId, keep)
 }
 
-export function createVersion({ projectId, targetType, targetId, label = '', source = 'manual', snapshot }) {
-  const snap = snapshot ?? snapshotOf(targetType, targetId)
+export async  function createVersion({ projectId, targetType, targetId, label = '', source = 'manual', snapshot }) {
+  const snap = snapshot ?? await snapshotOf(targetType, targetId)
   if (!snap) return null
   const row = {
     id: newId(),
@@ -112,21 +112,21 @@ export function createVersion({ projectId, targetType, targetId, label = '', sou
     snapshot: JSON.stringify(snap),
     createdAt: now()
   }
-  db.prepare(
+  await db.prepare(
     'INSERT INTO versions (id, project_id, target_type, target_id, label, source, snapshot, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
   ).run(row.id, row.projectId, row.targetType, row.targetId, row.label, row.source, row.snapshot, row.createdAt)
-  pruneVersions(targetType, targetId)
+  await pruneVersions(targetType, targetId)
   return row
 }
 
 /**
  * 在内容发生修改前创建快照，并节流：若最近已有内容相同的快照、或距上次快照不足 intervalMs，则跳过。
  */
-export function maybeAutoSnapshot(targetType, targetId, projectId, intervalMs = 120000) {
-  const snap = snapshotOf(targetType, targetId)
+export async  function maybeAutoSnapshot(targetType, targetId, projectId, intervalMs = 120000) {
+  const snap = await snapshotOf(targetType, targetId)
   if (!snap) return null
   const json = JSON.stringify(snap)
-  const latest = db
+  const latest = await db
     .prepare('SELECT snapshot, created_at FROM versions WHERE target_type = ? AND target_id = ? ORDER BY created_at DESC LIMIT 1')
     .get(targetType, targetId)
   if (latest && latest.snapshot === json) return null
@@ -134,37 +134,37 @@ export function maybeAutoSnapshot(targetType, targetId, projectId, intervalMs = 
     const elapsed = Date.now() - Date.parse(latest.created_at)
     if (Number.isFinite(elapsed) && elapsed < intervalMs) return null
   }
-  return createVersion({ projectId, targetType, targetId, label: '自动快照', source: 'auto', snapshot: snap })
+  return await createVersion({ projectId, targetType, targetId, label: '自动快照', source: 'auto', snapshot: snap })
 }
 
-export function restoreChapterSnapshot(chapterId, snap) {
+export async  function restoreChapterSnapshot(chapterId, snap) {
   if (!snap?.chapter) throw new Error('章节快照数据无效')
   const chapter = snap.chapter
   const t = now()
-  db.prepare('UPDATE chapters SET title = ?, summary = ?, status = ?, updated_at = ? WHERE id = ?').run(
+  await db.prepare('UPDATE chapters SET title = ?, summary = ?, status = ?, updated_at = ? WHERE id = ?').run(
     chapter.title ?? '',
     chapter.summary ?? '',
     chapter.status ?? 'outline',
     t,
     chapterId
   )
-  db.prepare('DELETE FROM blocks WHERE chapter_id = ?').run(chapterId)
+  await db.prepare('DELETE FROM blocks WHERE chapter_id = ?').run(chapterId)
   const insert = db.prepare(
     'INSERT INTO blocks (id, chapter_id, text, instruction, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
   )
   ;(snap.blocks ?? []).forEach((block, index) => {
     insert.run(newId(), chapterId, block.text ?? '', block.instruction ?? '', index * 10, t, t)
   })
-  const row = db.prepare('SELECT * FROM chapters WHERE id = ?').get(chapterId)
-  touchProject(row?.project_id)
+  const row = await db.prepare('SELECT * FROM chapters WHERE id = ?').get(chapterId)
+  await touchProject(row?.project_id)
   return row
 }
 
-export function restoreCharacterSnapshot(characterId, snap) {
+export async  function restoreCharacterSnapshot(characterId, snap) {
   if (!snap?.character) throw new Error('角色快照数据无效')
   const character = snap.character
   const t = now()
-  db.prepare(
+  await db.prepare(
     'UPDATE characters SET name = ?, alias = ?, role = ?, age = ?, appearance = ?, background = ?, relations = ?, goal = ?, notes = ?, updated_at = ? WHERE id = ?'
   ).run(
     character.name ?? '',
@@ -179,7 +179,7 @@ export function restoreCharacterSnapshot(characterId, snap) {
     t,
     characterId
   )
-  db.prepare('DELETE FROM character_stages WHERE character_id = ?').run(characterId)
+  await db.prepare('DELETE FROM character_stages WHERE character_id = ?').run(characterId)
   const insert = db.prepare(
     'INSERT INTO character_stages (id, character_id, name, period, traits, inner, behavior, speech, event, is_current, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   )
@@ -205,20 +205,20 @@ export function restoreCharacterSnapshot(characterId, snap) {
     )
   })
   if (stages.length && !currentAssigned) {
-    const first = db
+    const first = await db
       .prepare('SELECT id FROM character_stages WHERE character_id = ? ORDER BY sort_order ASC LIMIT 1')
       .get(characterId)
-    if (first) db.prepare('UPDATE character_stages SET is_current = 1 WHERE id = ?').run(first.id)
+    if (first) await db.prepare('UPDATE character_stages SET is_current = 1 WHERE id = ?').run(first.id)
   }
-  const row = db.prepare('SELECT * FROM characters WHERE id = ?').get(characterId)
-  touchProject(row?.project_id)
+  const row = await db.prepare('SELECT * FROM characters WHERE id = ?').get(characterId)
+  await touchProject(row?.project_id)
   return row
 }
 
-export function restoreOutlineSnapshot(outlineId, snap) {
+export async  function restoreOutlineSnapshot(outlineId, snap) {
   if (!snap?.outline) throw new Error('大纲快照数据无效')
   const outline = snap.outline
-  db.prepare('UPDATE outline_items SET title = ?, content = ?, parent_id = ?, sort_order = ?, updated_at = ? WHERE id = ?').run(
+  await db.prepare('UPDATE outline_items SET title = ?, content = ?, parent_id = ?, sort_order = ?, updated_at = ? WHERE id = ?').run(
     outline.title ?? '',
     outline.content ?? '',
     outline.parentId ?? null,
@@ -226,7 +226,7 @@ export function restoreOutlineSnapshot(outlineId, snap) {
     now(),
     outlineId
   )
-  const row = db.prepare('SELECT * FROM outline_items WHERE id = ?').get(outlineId)
-  touchProject(row?.project_id)
+  const row = await db.prepare('SELECT * FROM outline_items WHERE id = ?').get(outlineId)
+  await touchProject(row?.project_id)
   return row
 }

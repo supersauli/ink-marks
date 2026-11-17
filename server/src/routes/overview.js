@@ -5,51 +5,51 @@ import { createChapterResolver } from '../chapterOrder.js'
 
 const router = Router()
 
-router.get('/overview', (req, res) => {
+router.get('/overview', async (req, res) => {
   const projectId = String(req.query.projectId ?? '')
   if (!projectId) return res.status(400).json({ error: '缺少 projectId' })
 
-  const chapters = db
+  const chapters = await db
     .prepare('SELECT * FROM chapters WHERE project_id = ? ORDER BY sort_order ASC, created_at ASC')
     .all(projectId)
-  const characters = db
+  const characters = await db
     .prepare('SELECT * FROM characters WHERE project_id = ? ORDER BY sort_order ASC, created_at ASC')
     .all(projectId)
 
-  const template = db
+  const template = await db
     .prepare("SELECT id FROM card_templates WHERE project_id = ? AND kind = 'character'")
     .get(projectId)
   const fields = template
-    ? db.prepare('SELECT * FROM card_fields WHERE template_id = ? ORDER BY sort_order ASC').all(template.id)
+    ? await db.prepare('SELECT * FROM card_fields WHERE template_id = ? ORDER BY sort_order ASC').all(template.id)
     : []
   const fieldIds = new Set(fields.map((field) => field.id))
   const characterIds = new Set(characters.map((character) => character.id))
 
-  const values = db
+  const values = (await db
     .prepare("SELECT * FROM attribute_values WHERE entity_type = 'character'")
-    .all()
+    .all())
     .filter((row) => characterIds.has(row.entity_id) && fieldIds.has(row.field_id))
-  const logs = db
+  const logs = (await db
     .prepare("SELECT * FROM attribute_logs WHERE entity_type = 'character' ORDER BY created_at ASC, rowid ASC")
-    .all()
+    .all())
     .filter((row) => characterIds.has(row.entity_id) && fieldIds.has(row.field_id))
-  const stages = db
+  const stages = (await db
     .prepare('SELECT * FROM character_stages ORDER BY sort_order ASC, created_at ASC')
-    .all()
+    .all())
     .filter((row) => characterIds.has(row.character_id))
-  const skills = db
+  const skills = (await db
     .prepare('SELECT * FROM character_skills ORDER BY sort_order ASC, created_at ASC')
-    .all()
+    .all())
     .filter((row) => characterIds.has(row.character_id))
-  const statusLogs = db
+  const statusLogs = (await db
     .prepare('SELECT * FROM character_status_logs ORDER BY created_at ASC, rowid ASC')
-    .all()
+    .all())
     .filter((row) => characterIds.has(row.character_id))
 
-  const items = db.prepare('SELECT * FROM items WHERE project_id = ? ORDER BY sort_order ASC, created_at ASC').all(projectId)
-  const events = db
+  const items = await db.prepare('SELECT * FROM items WHERE project_id = ? ORDER BY sort_order ASC, created_at ASC').all(projectId)
+  const events = (await db
     .prepare('SELECT * FROM item_events ORDER BY created_at ASC, rowid ASC')
-    .all()
+    .all())
     .filter((row) => items.some((item) => item.id === row.item_id))
 
   const resolve = createChapterResolver(chapters)

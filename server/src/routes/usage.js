@@ -64,20 +64,20 @@ function groupBy(rows, keyOf) {
     .sort((a, b) => b.totalTokens - a.totalTokens)
 }
 
-function queryRows(projectId, since) {
+async function queryRows(projectId, since) {
   if (projectId) {
-    return db
+    return await db
       .prepare('SELECT * FROM llm_usage_logs WHERE project_id = ? AND created_at >= ? ORDER BY created_at ASC')
       .all(projectId, since)
   }
-  return db.prepare('SELECT * FROM llm_usage_logs WHERE created_at >= ? ORDER BY created_at ASC').all(since)
+  return await db.prepare('SELECT * FROM llm_usage_logs WHERE created_at >= ? ORDER BY created_at ASC').all(since)
 }
 
-router.get('/usage/stats', (req, res) => {
+router.get('/usage/stats', async (req, res) => {
   const projectId = str(req.query.projectId)
   const days = Math.min(365, Math.max(1, int(req.query.days, 30)))
   const since = new Date(Date.now() - days * 86400000).toISOString()
-  const rows = queryRows(projectId, since)
+  const rows = await queryRows(projectId, since)
   const byDay = groupBy(rows, (row) => String(row.created_at).slice(0, 10))
     .sort((a, b) => a.name.localeCompare(b.name))
   res.json({
@@ -90,22 +90,22 @@ router.get('/usage/stats', (req, res) => {
   })
 })
 
-router.get('/usage/logs', (req, res) => {
+router.get('/usage/logs', async (req, res) => {
   const projectId = str(req.query.projectId)
   const limit = Math.min(200, Math.max(1, int(req.query.limit, 50)))
   const rows = projectId
-    ? db
+    ? await db
         .prepare('SELECT * FROM llm_usage_logs WHERE project_id = ? ORDER BY created_at DESC LIMIT ?')
         .all(projectId, limit)
-    : db.prepare('SELECT * FROM llm_usage_logs ORDER BY created_at DESC LIMIT ?').all(limit)
+    : await db.prepare('SELECT * FROM llm_usage_logs ORDER BY created_at DESC LIMIT ?').all(limit)
   res.json(rows.map(mapUsageLog))
 })
 
-router.delete('/usage/logs', (req, res) => {
+router.delete('/usage/logs', async (req, res) => {
   const projectId = str(req.query.projectId)
   const result = projectId
-    ? db.prepare('DELETE FROM llm_usage_logs WHERE project_id = ?').run(projectId)
-    : db.prepare('DELETE FROM llm_usage_logs').run()
+    ? await db.prepare('DELETE FROM llm_usage_logs WHERE project_id = ?').run(projectId)
+    : await db.prepare('DELETE FROM llm_usage_logs').run()
   res.json({ ok: true, deleted: result.changes })
 })
 

@@ -8,29 +8,26 @@ import {
 } from './mappers.js'
 import { createChapterResolver } from './chapterOrder.js'
 
-export function listStages(characterId) {
-  return db
+export async  function listStages(characterId) {
+  return (await db
     .prepare('SELECT * FROM character_stages WHERE character_id = ? ORDER BY sort_order ASC, created_at ASC')
-    .all(characterId)
-    .map(mapCharacterStage)
+    .all(characterId)).map(mapCharacterStage)
 }
 
-export function listSkills(characterId) {
-  return db
+export async  function listSkills(characterId) {
+  return (await db
     .prepare('SELECT * FROM character_skills WHERE character_id = ? ORDER BY sort_order ASC, created_at ASC')
-    .all(characterId)
-    .map(mapCharacterSkill)
+    .all(characterId)).map(mapCharacterSkill)
 }
 
-export function listStatusLogs(characterId) {
-  return db
+export async  function listStatusLogs(characterId) {
+  return (await db
     .prepare('SELECT * FROM character_status_logs WHERE character_id = ? ORDER BY created_at ASC, rowid ASC')
-    .all(characterId)
-    .map(mapCharacterStatusLog)
+    .all(characterId)).map(mapCharacterStatusLog)
 }
 
-function chapterResolver(projectId) {
-  const chapters = db
+async function chapterResolver(projectId) {
+  const chapters = await db
     .prepare('SELECT id FROM chapters WHERE project_id = ? ORDER BY sort_order ASC, created_at ASC')
     .all(projectId)
   return createChapterResolver(chapters)
@@ -51,10 +48,10 @@ function latestStatus(logs, resolve) {
  * 一个角色与其他所有角色的「当前关系」。
  * 关系记录按章节时间线累积，取该角色视角下、每对角色最新的那一条。
  */
-export function listRelations(characterId) {
-  const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(characterId)
+export async  function listRelations(characterId) {
+  const character = await db.prepare('SELECT * FROM characters WHERE id = ?').get(characterId)
   if (!character) return []
-  const rows = db
+  const rows = await db
     .prepare(
       `SELECT r.*,
         CASE WHEN r.from_character_id = ? THEN r.to_character_id ELSE r.from_character_id END AS other_id
@@ -65,12 +62,11 @@ export function listRelations(characterId) {
     .all(characterId, characterId, characterId)
   if (!rows.length) return []
 
-  const resolve = chapterResolver(character.project_id)
+  const resolve = await chapterResolver(character.project_id)
   const names = new Map(
-    db
+    (await db
       .prepare('SELECT id, name FROM characters WHERE project_id = ?')
-      .all(character.project_id)
-      .map((row) => [row.id, row.name])
+      .all(character.project_id)).map((row) => [row.id, row.name])
   )
 
   const latest = new Map()
@@ -88,37 +84,37 @@ export function listRelations(characterId) {
   )
 }
 
-export function characterDetail(characterId) {
-  const row = db.prepare('SELECT * FROM characters WHERE id = ?').get(characterId)
+export async  function characterDetail(characterId) {
+  const row = await db.prepare('SELECT * FROM characters WHERE id = ?').get(characterId)
   if (!row) return null
-  const statusLogs = listStatusLogs(characterId)
+  const statusLogs = await listStatusLogs(characterId)
   return {
     ...mapCharacter(row),
-    stages: listStages(characterId),
-    skills: listSkills(characterId),
+    stages: await listStages(characterId),
+    skills: await listSkills(characterId),
     statusLogs,
-    currentStatus: latestStatus(statusLogs, chapterResolver(row.project_id)),
-    relationships: listRelations(characterId)
+    currentStatus: latestStatus(statusLogs, await chapterResolver(row.project_id)),
+    relationships: await listRelations(characterId)
   }
 }
 
-export function listCharacterDetails(projectId) {
-  const rows = db
+export async  function listCharacterDetails(projectId) {
+  const rows = await db
     .prepare('SELECT * FROM characters WHERE project_id = ? ORDER BY sort_order ASC, created_at ASC')
     .all(projectId)
-  return rows.map((row) => characterDetail(row.id))
+  return await Promise.all(rows.map(async (row) => await characterDetail(row.id)))
 }
 
-export function ensureCurrentStage(characterId) {
-  const stages = db
+export async  function ensureCurrentStage(characterId) {
+  const stages = await db
     .prepare('SELECT id, is_current FROM character_stages WHERE character_id = ? ORDER BY sort_order ASC, created_at ASC')
     .all(characterId)
   if (!stages.length) return
   if (stages.some((stage) => stage.is_current === 1)) return
-  db.prepare('UPDATE character_stages SET is_current = 1 WHERE id = ?').run(stages[0].id)
+  await db.prepare('UPDATE character_stages SET is_current = 1 WHERE id = ?').run(stages[0].id)
 }
 
-export function setCurrentStage(characterId, stageId) {
-  db.prepare('UPDATE character_stages SET is_current = 0 WHERE character_id = ?').run(characterId)
-  db.prepare('UPDATE character_stages SET is_current = 1 WHERE id = ? AND character_id = ?').run(stageId, characterId)
+export async  function setCurrentStage(characterId, stageId) {
+  await db.prepare('UPDATE character_stages SET is_current = 0 WHERE character_id = ?').run(characterId)
+  await db.prepare('UPDATE character_stages SET is_current = 1 WHERE id = ? AND character_id = ?').run(stageId, characterId)
 }

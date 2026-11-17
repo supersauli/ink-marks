@@ -8,52 +8,52 @@ const router = Router()
 
 const WORD_COUNT_SQL = '(SELECT COALESCE(SUM(LENGTH(b.text)), 0) FROM blocks b WHERE b.chapter_id = c.id) AS word_count'
 
-function listChapters(projectId) {
-  return db
+async function listChapters(projectId) {
+  return await db
     .prepare(`SELECT c.*, ${WORD_COUNT_SQL} FROM chapters c WHERE c.project_id = ? ORDER BY c.sort_order ASC, c.created_at ASC`)
     .all(projectId)
 }
 
-function getChapterRow(chapterId) {
-  return db
+async function getChapterRow(chapterId) {
+  return await db
     .prepare(`SELECT c.*, ${WORD_COUNT_SQL} FROM chapters c WHERE c.id = ?`)
     .get(chapterId)
 }
 
-function listBlocks(chapterId) {
-  return db.prepare('SELECT * FROM blocks WHERE chapter_id = ? ORDER BY sort_order ASC, created_at ASC').all(chapterId)
+async function listBlocks(chapterId) {
+  return await db.prepare('SELECT * FROM blocks WHERE chapter_id = ? ORDER BY sort_order ASC, created_at ASC').all(chapterId)
 }
 
-function touchChapter(chapterId) {
-  const chapter = db.prepare('SELECT project_id FROM chapters WHERE id = ?').get(chapterId)
-  db.prepare('UPDATE chapters SET updated_at = ? WHERE id = ?').run(now(), chapterId)
-  touchProject(chapter?.project_id)
+async function touchChapter(chapterId) {
+  const chapter = await db.prepare('SELECT project_id FROM chapters WHERE id = ?').get(chapterId)
+  await db.prepare('UPDATE chapters SET updated_at = ? WHERE id = ?').run(now(), chapterId)
+  await touchProject(chapter?.project_id)
 }
 
-function nextChapterOrder(projectId) {
-  const row = db.prepare('SELECT MAX(sort_order) AS m FROM chapters WHERE project_id = ?').get(projectId)
+async function nextChapterOrder(projectId) {
+  const row = await db.prepare('SELECT MAX(sort_order) AS m FROM chapters WHERE project_id = ?').get(projectId)
   return (row?.m ?? -10) + 10
 }
 
-router.get('/chapters', (req, res) => {
+router.get('/chapters', async (req, res) => {
   const projectId = str(req.query.projectId)
   if (!projectId) return res.status(400).json({ error: '缺少 projectId' })
-  res.json(listChapters(projectId).map(mapChapter))
+  res.json((await listChapters(projectId)).map(mapChapter))
 })
 
-router.post('/chapters', (req, res) => {
+router.post('/chapters', async (req, res) => {
   const body = req.body ?? {}
   const projectId = str(body.projectId)
-  const project = db.prepare('SELECT id FROM projects WHERE id = ?').get(projectId)
+  const project = await db.prepare('SELECT id FROM projects WHERE id = ?').get(projectId)
   if (!project) return res.status(400).json({ error: '作品不存在' })
 
-  let sortOrder = nextChapterOrder(projectId)
+  let sortOrder = await nextChapterOrder(projectId)
   const afterId = body.afterChapterId ? str(body.afterChapterId) : ''
   if (afterId) {
-    const after = db.prepare('SELECT sort_order FROM chapters WHERE id = ? AND project_id = ?').get(afterId, projectId)
+    const after = await db.prepare('SELECT sort_order FROM chapters WHERE id = ? AND project_id = ?').get(afterId, projectId)
     if (after) {
       sortOrder = after.sort_order + 10
-      db.prepare('UPDATE chapters SET sort_order = sort_order + 10 WHERE project_id = ? AND sort_order >= ?').run(
+      await db.prepare('UPDATE chapters SET sort_order = sort_order + 10 WHERE project_id = ? AND sort_order >= ?').run(
         projectId,
         sortOrder
       )
@@ -62,11 +62,11 @@ router.post('/chapters', (req, res) => {
 
   const id = newId()
   const t = now()
-  db.prepare(
+  await db.prepare(
     'INSERT INTO chapters (id, project_id, title, summary, status, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
   ).run(id, projectId, trimTitle(body.title, '新章节'), str(body.summary), 'outline', sortOrder, t, t)
-  touchProject(projectId)
-  res.status(201).json(mapChapter(getChapterRow(id)))
+  await touchProject(projectId)
+  res.status(201).json(mapChapter(await getChapterRow(id)))
 })
 
 function snippetOf(text, needle, before = 16, after = 44) {
@@ -80,15 +80,15 @@ function snippetOf(text, needle, before = 16, after = 44) {
 }
 
 // 章节搜索：标题、章节大纲、正文段落
-router.get('/chapters/search', (req, res) => {
+router.get('/chapters/search', async (req, res) => {
   const projectId = str(req.query.projectId)
   const query = str(req.query.q).trim()
   if (!projectId) return res.status(400).json({ error: '缺少 projectId' })
   if (!query) return res.json({ query: '', results: [] })
 
   const needle = query.toLowerCase()
-  const chapterRows = listChapters(projectId)
-  const blockRows = db
+  const chapterRows = await listChapters(projectId)
+  const blockRows = await db
     .prepare(
       `SELECT b.id, b.chapter_id, b.text FROM blocks b
        JOIN chapters c ON c.id = b.chapter_id
@@ -141,26 +141,26 @@ router.get('/chapters/search', (req, res) => {
   res.json({ query, results })
 })
 
-router.post('/chapters/reorder', (req, res) => {
+router.post('/chapters/reorder', async (req, res) => {
   const { projectId, ids } = req.body ?? {}
   if (!projectId || !Array.isArray(ids)) return res.status(400).json({ error: '参数不完整' })
   const update = db.prepare('UPDATE chapters SET sort_order = ? WHERE id = ? AND project_id = ?')
   ids.forEach((id, index) => update.run(index * 10, str(id), projectId))
-  touchProject(projectId)
-  res.json(listChapters(projectId).map(mapChapter))
+  await touchProject(projectId)
+  res.json((await listChapters(projectId)).map(mapChapter))
 })
 
-router.get('/chapters/:id', (req, res) => {
-  const chapter = getChapterRow(req.params.id)
+router.get('/chapters/:id', async (req, res) => {
+  const chapter = await getChapterRow(req.params.id)
   if (!chapter) return res.status(404).json({ error: '章节不存在' })
   res.json({
     ...mapChapter(chapter),
-    blocks: listBlocks(chapter.id).map(mapBlock)
+    blocks: (await listBlocks(chapter.id)).map(mapBlock)
   })
 })
 
-router.patch('/chapters/:id', (req, res) => {
-  const chapter = getChapterRow(req.params.id)
+router.patch('/chapters/:id', async (req, res) => {
+  const chapter = await getChapterRow(req.params.id)
   if (!chapter) return res.status(404).json({ error: '章节不存在' })
   const body = req.body ?? {}
   const title = body.title === undefined ? chapter.title : trimTitle(body.title, chapter.title)
@@ -168,31 +168,31 @@ router.patch('/chapters/:id', (req, res) => {
   const status = body.status === undefined ? chapter.status : str(body.status, chapter.status)
 
   if (summary !== chapter.summary) {
-    maybeAutoSnapshot('chapter', chapter.id, chapter.project_id)
+    await maybeAutoSnapshot('chapter', chapter.id, chapter.project_id)
   }
-  db.prepare('UPDATE chapters SET title = ?, summary = ?, status = ?, updated_at = ? WHERE id = ?').run(
+  await db.prepare('UPDATE chapters SET title = ?, summary = ?, status = ?, updated_at = ? WHERE id = ?').run(
     title,
     summary,
     status,
     now(),
     chapter.id
   )
-  touchProject(chapter.project_id)
-  res.json(mapChapter(getChapterRow(chapter.id)))
+  await touchProject(chapter.project_id)
+  res.json(mapChapter(await getChapterRow(chapter.id)))
 })
 
-router.delete('/chapters/:id', (req, res) => {
-  const chapter = getChapterRow(req.params.id)
+router.delete('/chapters/:id', async (req, res) => {
+  const chapter = await getChapterRow(req.params.id)
   if (!chapter) return res.status(404).json({ error: '章节不存在' })
-  db.prepare('DELETE FROM chapters WHERE id = ?').run(chapter.id)
-  db.prepare("DELETE FROM versions WHERE target_type = 'chapter' AND target_id = ?").run(chapter.id)
-  db.prepare('DELETE FROM revisions WHERE chapter_id = ?').run(chapter.id)
-  touchProject(chapter.project_id)
+  await db.prepare('DELETE FROM chapters WHERE id = ?').run(chapter.id)
+  await db.prepare("DELETE FROM versions WHERE target_type = 'chapter' AND target_id = ?").run(chapter.id)
+  await db.prepare('DELETE FROM revisions WHERE chapter_id = ?').run(chapter.id)
+  await touchProject(chapter.project_id)
   res.json({ ok: true })
 })
 
-router.post('/chapters/:id/blocks', (req, res) => {
-  const chapter = getChapterRow(req.params.id)
+router.post('/chapters/:id/blocks', async (req, res) => {
+  const chapter = await getChapterRow(req.params.id)
   if (!chapter) return res.status(404).json({ error: '章节不存在' })
 
   const body = req.body ?? {}
@@ -200,17 +200,17 @@ router.post('/chapters/:id/blocks', (req, res) => {
   const instruction = str(body.instruction)
   const afterId = body.afterBlockId ? str(body.afterBlockId) : ''
 
-  maybeAutoSnapshot('chapter', chapter.id, chapter.project_id)
+  await maybeAutoSnapshot('chapter', chapter.id, chapter.project_id)
 
   let sortOrder = 0
   if (afterId) {
-    const after = db.prepare('SELECT sort_order FROM blocks WHERE id = ? AND chapter_id = ?').get(afterId, chapter.id)
+    const after = await db.prepare('SELECT sort_order FROM blocks WHERE id = ? AND chapter_id = ?').get(afterId, chapter.id)
     sortOrder = after ? after.sort_order + 10 : 0
     if (after) {
-      db.prepare('UPDATE blocks SET sort_order = sort_order + 10 WHERE chapter_id = ? AND sort_order >= ?').run(chapter.id, sortOrder)
+      await db.prepare('UPDATE blocks SET sort_order = sort_order + 10 WHERE chapter_id = ? AND sort_order >= ?').run(chapter.id, sortOrder)
     }
   } else {
-    const row = db.prepare('SELECT MAX(sort_order) AS m FROM blocks WHERE chapter_id = ?').get(chapter.id)
+    const row = await db.prepare('SELECT MAX(sort_order) AS m FROM blocks WHERE chapter_id = ?').get(chapter.id)
     sortOrder = (row?.m ?? -10) + 10
   }
 
@@ -224,48 +224,46 @@ router.post('/chapters/:id/blocks', (req, res) => {
     insert.run(id, chapter.id, text, instruction, sortOrder + index * 10, t, t)
     createdIds.push(id)
   })
-  touchChapter(chapter.id)
+  await touchChapter(chapter.id)
 
-  const blocks = createdIds
-    .map((id) => db.prepare('SELECT * FROM blocks WHERE id = ?').get(id))
-    .map(mapBlock)
-  res.status(201).json({ blocks, chapter: mapChapter(getChapterRow(chapter.id)) })
+  const blocks = (await Promise.all(createdIds.map((id) => db.prepare('SELECT * FROM blocks WHERE id = ?').get(id)))).map(mapBlock)
+  res.status(201).json({ blocks, chapter: mapChapter(await getChapterRow(chapter.id)) })
 })
 
-router.put('/chapters/:id/blocks/order', (req, res) => {
-  const chapter = getChapterRow(req.params.id)
+router.put('/chapters/:id/blocks/order', async (req, res) => {
+  const chapter = await getChapterRow(req.params.id)
   if (!chapter) return res.status(404).json({ error: '章节不存在' })
   const { ids } = req.body ?? {}
   if (!Array.isArray(ids)) return res.status(400).json({ error: '缺少 ids' })
   const update = db.prepare('UPDATE blocks SET sort_order = ? WHERE id = ? AND chapter_id = ?')
   ids.forEach((id, index) => update.run(index * 10, str(id), chapter.id))
-  touchChapter(chapter.id)
-  res.json({ blocks: listBlocks(chapter.id).map(mapBlock) })
+  await touchChapter(chapter.id)
+  res.json({ blocks: (await listBlocks(chapter.id)).map(mapBlock) })
 })
 
-router.patch('/blocks/:id', (req, res) => {
-  const block = db.prepare('SELECT * FROM blocks WHERE id = ?').get(req.params.id)
+router.patch('/blocks/:id', async (req, res) => {
+  const block = await db.prepare('SELECT * FROM blocks WHERE id = ?').get(req.params.id)
   if (!block) return res.status(404).json({ error: '段落不存在' })
-  const chapter = db.prepare('SELECT * FROM chapters WHERE id = ?').get(block.chapter_id)
+  const chapter = await db.prepare('SELECT * FROM chapters WHERE id = ?').get(block.chapter_id)
   const body = req.body ?? {}
   const text = body.text === undefined ? block.text : str(body.text, block.text)
   const instruction = body.instruction === undefined ? block.instruction : str(body.instruction, block.instruction)
 
   if (text !== block.text) {
-    maybeAutoSnapshot('chapter', block.chapter_id, chapter?.project_id)
+    await maybeAutoSnapshot('chapter', block.chapter_id, chapter?.project_id)
   }
-  db.prepare('UPDATE blocks SET text = ?, instruction = ?, updated_at = ? WHERE id = ?').run(text, instruction, now(), block.id)
-  touchChapter(block.chapter_id)
-  const updated = db.prepare('SELECT * FROM blocks WHERE id = ?').get(block.id)
+  await db.prepare('UPDATE blocks SET text = ?, instruction = ?, updated_at = ? WHERE id = ?').run(text, instruction, now(), block.id)
+  await touchChapter(block.chapter_id)
+  const updated = await db.prepare('SELECT * FROM blocks WHERE id = ?').get(block.id)
   res.json(mapBlock(updated))
 })
 
-router.delete('/blocks/:id', (req, res) => {
-  const block = db.prepare('SELECT * FROM blocks WHERE id = ?').get(req.params.id)
+router.delete('/blocks/:id', async (req, res) => {
+  const block = await db.prepare('SELECT * FROM blocks WHERE id = ?').get(req.params.id)
   if (!block) return res.status(404).json({ error: '段落不存在' })
-  maybeAutoSnapshot('chapter', block.chapter_id, db.prepare('SELECT project_id FROM chapters WHERE id = ?').get(block.chapter_id)?.project_id)
-  db.prepare('DELETE FROM blocks WHERE id = ?').run(block.id)
-  touchChapter(block.chapter_id)
+  await maybeAutoSnapshot('chapter', block.chapter_id, await db.prepare('SELECT project_id FROM chapters WHERE id = ?').get(block.chapter_id)?.project_id)
+  await db.prepare('DELETE FROM blocks WHERE id = ?').run(block.id)
+  await touchChapter(block.chapter_id)
   res.json({ ok: true })
 })
 

@@ -3,6 +3,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+// 本地运行时：注入 node:sqlite 驱动并完成建表/seed（须在任何路由 import 之前）
+import './db-local.js'
+
 import projectsRouter from './routes/projects.js'
 import outlinesRouter from './routes/outlines.js'
 import chaptersRouter from './routes/chapters.js'

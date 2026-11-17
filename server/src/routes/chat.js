@@ -8,24 +8,24 @@ import { buildHeaders, resolveEndpoint } from '../llm.js'
 const router = Router()
 const SCENES = new Set(['chat', 'refine', 'append', 'summary', 'outline', 'other'])
 
-router.get('/chat/messages', (req, res) => {
+router.get('/chat/messages', async (req, res) => {
   const projectId = str(req.query.projectId)
   if (!projectId) return res.status(400).json({ error: '缺少 projectId' })
-  const rows = db.prepare('SELECT * FROM chat_messages WHERE project_id = ? ORDER BY created_at ASC').all(projectId)
+  const rows = await db.prepare('SELECT * FROM chat_messages WHERE project_id = ? ORDER BY created_at ASC').all(projectId)
   res.json(rows.map(mapChatMessage))
 })
 
-router.post('/chat/messages', (req, res) => {
+router.post('/chat/messages', async (req, res) => {
   const body = req.body ?? {}
   const projectId = str(body.projectId)
-  const project = db.prepare('SELECT id FROM projects WHERE id = ?').get(projectId)
+  const project = await db.prepare('SELECT id FROM projects WHERE id = ?').get(projectId)
   if (!project) return res.status(400).json({ error: '作品不存在' })
   const role = ['user', 'assistant', 'system'].includes(body.role) ? body.role : 'user'
   const content = str(body.content)
   const usageJson = body.usage && typeof body.usage === 'object' ? JSON.stringify(body.usage) : ''
   const id = newId()
   const t = now()
-  db.prepare(
+  await db.prepare(
     'INSERT INTO chat_messages (id, project_id, role, content, model_name, usage_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
   ).run(
     id,
@@ -36,13 +36,13 @@ router.post('/chat/messages', (req, res) => {
     usageJson,
     t
   )
-  res.status(201).json(mapChatMessage(db.prepare('SELECT * FROM chat_messages WHERE id = ?').get(id)))
+  res.status(201).json(mapChatMessage(await db.prepare('SELECT * FROM chat_messages WHERE id = ?').get(id)))
 })
 
-router.delete('/chat/messages', (req, res) => {
+router.delete('/chat/messages', async (req, res) => {
   const projectId = str(req.query.projectId)
   if (!projectId) return res.status(400).json({ error: '缺少 projectId' })
-  db.prepare('DELETE FROM chat_messages WHERE project_id = ?').run(projectId)
+  await db.prepare('DELETE FROM chat_messages WHERE project_id = ?').run(projectId)
   res.json({ ok: true })
 })
 
@@ -50,7 +50,7 @@ router.post('/chat/stream', async (req, res) => {
   const body = req.body ?? {}
   const modelId = str(body.modelId)
   if (!modelId) return res.status(400).json({ error: '缺少 modelId' })
-  const row = db
+  const row = await db
     .prepare(
       `SELECT m.*, p.base_url, p.api_key, p.extra_headers, p.api_type, p.name AS provider_name
        FROM models m JOIN providers p ON p.id = m.provider_id WHERE m.id = ?`
@@ -187,7 +187,7 @@ router.post('/chat/stream', async (req, res) => {
   }
 
   // 流结束（或被中断）时统一算一次用量：优先用上游上报，没有就按字符估算
-  const finishUsage = () => {
+  const finishUsage = async () => {
     try {
       const base = lastUsage
         ? normalizeUsage(lastUsage, { messages, completionText })
@@ -196,7 +196,7 @@ router.post('/chat/stream', async (req, res) => {
         durationMs: Date.now() - startedAt,
         firstTokenMs: firstTokenAt === null ? null : firstTokenAt - startedAt
       })
-      db.prepare(
+      await db.prepare(
         `INSERT INTO llm_usage_logs
          (id, project_id, scene, model_name, provider_name, prompt_tokens, completion_tokens, total_tokens,
           cache_hit_tokens, cache_miss_tokens, cache_hit_rate, context_length, context_used, context_rate,
@@ -241,7 +241,7 @@ router.post('/chat/stream', async (req, res) => {
     } catch (error) {
       send({ error: `解析模型响应失败：${error.message}` })
     }
-    finishUsage()
+    await finishUsage()
     send({ done: true, ok: true })
     res.end()
     return
@@ -308,7 +308,7 @@ router.post('/chat/stream', async (req, res) => {
       send({ error: `读取模型流失败：${error.message}` })
     }
   } finally {
-    finishUsage()
+    await finishUsage()
     send({ done: true, ok: finished })
     if (!res.writableEnded && !res.destroyed) res.end()
   }
