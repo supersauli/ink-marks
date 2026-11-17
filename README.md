@@ -205,7 +205,10 @@ npm start     # 构建前端 + 启动服务，只有这一个地址
 | 路径 | 说明 |
 | --- | --- |
 | `server/data/novel.db` | SQLite 数据库（作品、大纲、章节、段落、角色与性格阶段、角色技能 / 状态记录 / 角色关系、物品与状态记录、属性卡模板/属性值/成长记录、修改记录、版本、模型配置、对话记录、AI 用量流水） |
-| `server/src/db.js` | 建表与示例数据 |
+| `server/src/db.js` | 数据库统一入口（运行时无关的适配器） |
+| `server/src/db-adapter.js` / `db-local.js` | 适配层接口 / 本地 node:sqlite 驱动（含建表与示例数据） |
+| `server/src/security.js` | API Key 脱敏与访问令牌认证 |
+| `worker/` | Cloudflare Workers 运行时：D1 驱动、Router 兼容层、HTTP 适配、D1 迁移 |
 | `server/src/routes/` | REST API（projects / outlines / chapters / characters / items / cards / overview / revisions / versions / providers / chat / usage） |
 | `server/src/llm.js` | OpenAI 兼容接口地址与鉴权处理 |
 | `server/src/usage.js` | 各服务商 usage 字段归一化、上下文窗口预设、字符数估算 |
@@ -222,6 +225,30 @@ npm start     # 构建前端 + 启动服务，只有这一个地址
 数据目录可通过环境变量覆盖：`NOVEL_DB`（完整 db 路径）或 `NOVEL_DATA_DIR`（目录）。
 
 备份：直接复制 `server/data/novel.db` 即可（建议先停止服务，或同时复制 `-wal` / `-shm` 文件）。
+
+## 部署到 Cloudflare（Workers + D1）
+
+项目已做好运行时兼容：同一套业务代码，本地跑 Express + node:sqlite，云端跑 Workers + D1。前端构建产物由 Cloudflare 静态托管，API 由 Worker 处理。
+
+**部署步骤**：
+
+1. 安装依赖并构建前端：`npm install && npm run build`
+2. 创建 D1 数据库：`npx wrangler d1 create ink-marks-db`，把返回的 `database_id` 填入 `wrangler.toml` 的 `database_id`
+3. 初始化表结构：`npx wrangler d1 migrations apply ink-marks-db --remote`
+4. 迁移已有数据（可选）：把本地 `novel.db` 用 `sqlite3` 导出为 SQL，再通过 `npx wrangler d1 execute ink-marks-db --remote --file=dump.sql` 导入
+5. 设置访问令牌（重要）：`npx wrangler secret put NOVEL_ACCESS_TOKEN`，用一个长随机字符串
+6. 部署：`npx wrangler deploy`
+
+**访问方式**：部署后用 `https://你的域名/?token=你的令牌` 打开一次，令牌会存进浏览器会话，之后正常访问即可。不带/带错令牌访问 API 会返回 401。
+
+**安全说明**：
+- API Key 只存服务端（本地 db / 云端 D1），接口只返回掩码，不回传明文
+- 务必设置 `NOVEL_ACCESS_TOKEN`；不设则 API 完全公开，任何人可读写你的数据并使用你的模型额度
+- 本地开发默认不启用认证，行为与之前一致
+
+**本地模拟 Workers**（验证用）：`npx wrangler d1 migrations apply ink-marks-db --local` 然后 `npx wrangler dev --local`
+
+> 提示：云端 Workers 无法访问 `localhost:11434` 这类本机 Ollama 服务。若要继续用本地模型，请改用 Cloudflare Tunnel 方案（数据不出本机），或把模型换成可从公网访问的端点。
 
 ## 主要 API
 

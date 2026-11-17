@@ -1,0 +1,27 @@
+name = "ink-marks"
+main = "worker/src/index.js"
+compatibility_date = "2026-11-17"
+compatibility_flags = ["nodejs_compat"]
+
+# 前端静态资源：构建后的 web/dist。Workers 负责 /api，其余交给 Pages assets。
+[assets]
+directory = "./web/dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+
+# D1 数据库：本地开发用 wrangler d1 migrations apply 初始化，
+# 部署前需创建数据库并把 database_id 填到这里（见 README 部署章节）。
+[[d1_databases]]
+binding = "DB"
+database_name = "ink-marks-db"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+migrations_dir = "worker/migrations"
+
+# 把业务路由文件里的 'express' 映射到 Workers 兼容的极简 Router。
+# 这样 server/src/routes/*.js 可以原样复用，无需为 Workers 改写。
+[alias]
+express = "./worker/src/express-shim.js"
+
+# 访问令牌用 secret 配置，不要写进此文件：
+#   wrangler secret put NOVEL_ACCESS_TOKEN
+# 本地开发可在 .dev.vars 里设置 NOVEL_ACCESS_TOKEN=xxx（可选，不设则不启用认证）

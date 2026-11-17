@@ -17,6 +17,7 @@
     "dev:web": "npm --workspace web run dev"
   },
   "devDependencies": {
-    "concurrently": "^9.1.2"
+    "concurrently": "^9.1.2",
+    "wrangler": "^4.163.0"
   }
 }
