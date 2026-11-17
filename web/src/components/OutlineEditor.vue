@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useNovelStore } from '../stores/novel'
+import { useVimStore, vimKey } from '../stores/vim'
 import { countChars, formatTime } from '../utils/format'
+import VimTextarea from './VimTextarea.vue'
 
 const novel = useNovelStore()
+const vim = useVimStore()
 
 const outline = computed(() => novel.activeOutline)
 const outlineId = computed(() => outline.value?.id ?? '')
@@ -26,14 +29,14 @@ const breadcrumb = computed(() => {
 
 const children = computed(() => (outline.value ? novel.outlines.filter((item) => item.parentId === outline.value?.id) : []))
 
-function onTitleInput(event: Event) {
+function onTitleInput(value: string) {
   if (!outline.value) return
-  novel.editOutlineTitle(outline.value.id, (event.target as HTMLInputElement).value)
+  novel.editOutlineTitle(outline.value.id, value)
 }
 
-function onContentInput(event: Event) {
+function onContentInput(value: string) {
   if (!outline.value) return
-  novel.editOutlineContent(outline.value.id, (event.target as HTMLTextAreaElement).value)
+  novel.editOutlineContent(outline.value.id, value)
 }
 
 function openVersions() {
@@ -62,7 +65,16 @@ async function remove() {
       </div>
 
       <div class="title-row">
-        <input class="title-input" :value="outline.title" placeholder="大纲条目标题" @input="onTitleInput" />
+        <VimTextarea
+          class="title-input"
+          :model-value="outline.title"
+          placeholder="大纲条目标题"
+          :multiline="false"
+          :vim-enabled="vim.isEnabled(vimKey.outlineTitle)"
+          aria-label="大纲条目标题"
+          @update:model-value="onTitleInput"
+          @update:vim-enabled="vim.setEnabled(vimKey.outlineTitle, $event)"
+        />
         <div class="head-actions">
           <button class="btn btn-sm" title="查看并恢复历史版本" @click="openVersions">历史版本</button>
           <button class="btn btn-sm" title="让 AI 修改这条大纲" @click="refine">✦ AI 修改</button>
@@ -78,11 +90,14 @@ async function remove() {
     </header>
 
     <div class="editor-body">
-      <textarea
+      <VimTextarea
         class="outline-text"
-        :value="outline.content"
+        :model-value="outline.content"
         placeholder="写下故事主线、世界观、人物关系……&#10;&#10;可以先写一个粗略的想法，之后再让 AI 帮你扩写，或直接手动修改。"
-        @input="onContentInput"
+        :vim-enabled="vim.isEnabled(vimKey.outlineContent)"
+        aria-label="大纲内容"
+        @update:model-value="onContentInput"
+        @update:vim-enabled="vim.setEnabled(vimKey.outlineContent, $event)"
       />
 
       <section class="child-section">
@@ -150,20 +165,17 @@ async function remove() {
   gap: 16px;
 }
 .title-input {
+  --editor-font-size: 24px;
+  --editor-line-height: 1.4;
+  --editor-font-family: var(--font-serif);
+  --editor-font-weight: 600;
+  --editor-letter-spacing: 0.02em;
+  --editor-padding: 2px 68px 2px 0;
   flex: 1;
   min-width: 0;
-  border: none;
-  background: transparent;
-  outline: none;
-  padding: 2px 0;
-  font-family: var(--font-serif);
-  font-size: 24px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: var(--ink);
   border-bottom: 1px solid transparent;
 }
-.title-input:focus {
+.title-input:focus-within {
   border-bottom-color: var(--border);
 }
 .head-actions {
@@ -193,22 +205,13 @@ async function remove() {
 }
 
 .outline-text {
+  --editor-font-size: 16px;
+  --editor-line-height: 2;
+  --editor-font-family: var(--font-serif);
+  --editor-letter-spacing: 0.01em;
+  --editor-min-height: 52vh;
   width: 100%;
-  min-height: 52vh;
-  padding: 0;
-  border: none;
-  background: transparent;
-  outline: none;
-  resize: vertical;
-  font-family: var(--font-serif);
-  font-size: 16px;
-  line-height: 2;
   color: var(--ink-soft);
-  letter-spacing: 0.01em;
-}
-.outline-text::placeholder {
-  color: var(--muted);
-  opacity: 0.75;
 }
 
 .child-section {

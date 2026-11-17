@@ -14,6 +14,11 @@ export interface ProviderPreset {
 export const PROVIDER_PRESETS: ProviderPreset[] = [
   { name: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', hint: 'deepseek-chat / deepseek-reasoner' },
   { name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', hint: 'gpt-4o / gpt-4o-mini' },
+  {
+    name: 'SenseNova（商汤）',
+    baseUrl: 'https://token.sensenova.cn/v1',
+    hint: 'sk- 开头的 Key · sensenova-6.8-flash-lite / deepseek-flash / glm-5.2'
+  },
   { name: 'Kimi（Moonshot）', baseUrl: 'https://api.moonshot.cn/v1', hint: 'moonshot-v1-8k 等' },
   { name: '智谱 GLM', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', hint: 'glm-4-plus / glm-4-flash' },
   { name: '硅基流动', baseUrl: 'https://api.siliconflow.cn/v1', hint: '多种开源模型' },
@@ -117,7 +122,7 @@ export const useSettingsStore = defineStore('settings', () => {
 
   async function addModel(
     providerId: string,
-    payload: { name: string; displayName?: string; temperature?: number; maxTokens?: number; isDefault?: boolean }
+    payload: { name: string; displayName?: string; temperature?: number; maxTokens?: number; contextLength?: number; extraBody?: string; isDefault?: boolean }
   ) {
     const created = await api.createModel({ providerId, ...payload })
     const provider = providers.value.find((item) => item.id === providerId)
@@ -131,7 +136,7 @@ export const useSettingsStore = defineStore('settings', () => {
     return created
   }
 
-  async function saveModel(id: string, patch: { name?: string; displayName?: string; temperature?: number; maxTokens?: number; isDefault?: boolean }) {
+  async function saveModel(id: string, patch: { name?: string; displayName?: string; temperature?: number; maxTokens?: number; contextLength?: number; extraBody?: string; isDefault?: boolean }) {
     const updated = await api.updateModel(id, patch)
     if (updated.isDefault) {
       providers.value.forEach((provider) => provider.models.forEach((model) => (model.isDefault = false)))

@@ -3,6 +3,7 @@ import { db } from '../db.js'
 import { mapModel, mapProvider } from '../mappers.js'
 import { newId, now, str, int, boolInt, trimTitle } from '../util.js'
 import { fetchRemoteModels } from '../llm.js'
+import { guessContextLength } from '../usage.js'
 
 const router = Router()
 
@@ -16,6 +17,18 @@ function providerWithModels(row) {
 
 function clearDefaultModels(exceptId = '') {
   db.prepare('UPDATE models SET is_default = 0 WHERE id != ?').run(exceptId)
+}
+
+// 模型级的额外请求参数（JSON 对象），用于 reasoning_effort / top_p 这类兼容差异
+function normalizeExtraBody(value) {
+  const text = str(value, '{}').trim() || '{}'
+  try {
+    const parsed = JSON.parse(text)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+    return JSON.stringify(parsed)
+  } catch {
+    return null
+  }
 }
 
 router.get('/providers', (req, res) => {
@@ -97,11 +110,13 @@ router.post('/models', (req, res) => {
   if (!provider) return res.status(400).json({ error: '服务商不存在' })
   const name = str(body.name).trim()
   if (!name) return res.status(400).json({ error: '模型名不能为空' })
+  const extraBody = normalizeExtraBody(body.extraBody ?? '{}')
+  if (extraBody === null) return res.status(400).json({ error: '额外请求参数必须是合法的 JSON 对象' })
   const row = db.prepare('SELECT MAX(sort_order) AS m FROM models WHERE provider_id = ?').get(providerId)
   const id = newId()
   const isDefault = boolInt(body.isDefault)
   db.prepare(
-    'INSERT INTO models (id, provider_id, name, display_name, temperature, max_tokens, is_default, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    'INSERT INTO models (id, provider_id, name, display_name, temperature, max_tokens, context_length, extra_body, is_default, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   ).run(
     id,
     providerId,
@@ -109,6 +124,8 @@ router.post('/models', (req, res) => {
     trimTitle(body.displayName, name),
     Number.isFinite(Number(body.temperature)) ? Number(body.temperature) : 0.7,
     int(body.maxTokens, 4096),
+    Math.max(0, int(body.contextLength, guessContextLength(name))),
+    extraBody,
     isDefault,
     (row?.m ?? -10) + 10
   )
@@ -121,13 +138,21 @@ router.patch('/models/:id', (req, res) => {
   if (!row) return res.status(404).json({ error: '模型不存在' })
   const body = req.body ?? {}
   const nextDefault = body.isDefault === undefined ? row.is_default : boolInt(body.isDefault)
+  let extraBody = row.extra_body ?? '{}'
+  if (body.extraBody !== undefined) {
+    const normalized = normalizeExtraBody(body.extraBody)
+    if (normalized === null) return res.status(400).json({ error: '额外请求参数必须是合法的 JSON 对象' })
+    extraBody = normalized
+  }
   db.prepare(
-    'UPDATE models SET name = ?, display_name = ?, temperature = ?, max_tokens = ?, is_default = ? WHERE id = ?'
+    'UPDATE models SET name = ?, display_name = ?, temperature = ?, max_tokens = ?, context_length = ?, extra_body = ?, is_default = ? WHERE id = ?'
   ).run(
     body.name === undefined ? row.name : trimTitle(body.name, row.name),
     body.displayName === undefined ? row.display_name : trimTitle(body.displayName, row.display_name),
     body.temperature === undefined ? row.temperature : Number(body.temperature),
     body.maxTokens === undefined ? row.max_tokens : int(body.maxTokens, row.max_tokens),
+    Math.max(0, int(body.contextLength, row.context_length ?? 0)),
+    extraBody,
     nextDefault,
     row.id
   )

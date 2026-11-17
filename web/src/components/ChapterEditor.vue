@@ -1,24 +1,27 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useNovelStore } from '../stores/novel'
+import { useVimStore, vimKey } from '../stores/vim'
 import { countChars, formatTime, scopeLabels } from '../utils/format'
 import ChapterBody from './ChapterBody.vue'
+import VimTextarea from './VimTextarea.vue'
 
 const novel = useNovelStore()
+const vim = useVimStore()
 
 const chapter = computed(() => novel.chapter)
 const summaryChars = computed(() => countChars(chapter.value?.summary ?? ''))
 const blockCount = computed(() => chapter.value?.blocks.length ?? 0)
 const summaryRevisions = computed(() => novel.revisions.filter((item) => item.instruction).slice(0, 6))
 
-function onTitleInput(event: Event) {
+function onTitleInput(value: string) {
   if (!chapter.value) return
-  novel.editChapterMeta({ title: (event.target as HTMLInputElement).value })
+  novel.editChapterMeta({ title: value })
 }
 
-function onSummaryInput(event: Event) {
+function onSummaryInput(value: string) {
   if (!chapter.value) return
-  novel.editChapterMeta({ summary: (event.target as HTMLTextAreaElement).value })
+  novel.editChapterMeta({ summary: value })
 }
 
 function onStatusChange(event: Event) {
@@ -61,7 +64,16 @@ async function removeChapter() {
       </div>
 
       <div class="title-row">
-        <input class="title-input" :value="chapter.title" placeholder="章节标题" @input="onTitleInput" />
+        <VimTextarea
+          class="title-input"
+          :model-value="chapter.title"
+          placeholder="章节标题"
+          :multiline="false"
+          :vim-enabled="vim.isEnabled(vimKey.chapterTitle)"
+          aria-label="章节标题"
+          @update:model-value="onTitleInput"
+          @update:vim-enabled="vim.setEnabled(vimKey.chapterTitle, $event)"
+        />
         <div class="head-actions">
           <button class="btn btn-sm" title="查看并恢复历史版本" @click="openVersions">历史版本</button>
           <button class="btn btn-sm" title="查看本章所有修改要求" @click="openRevisions">修改记录</button>
@@ -106,11 +118,14 @@ async function removeChapter() {
             <button class="btn btn-sm" @click="novel.setMode('chapter')">去写正文 →</button>
           </div>
         </div>
-        <textarea
+        <VimTextarea
           class="summary-text"
-          :value="chapter.summary"
+          :model-value="chapter.summary"
           placeholder="写清楚这一章的场景、人物行动、冲突与转折，以及结尾留给读者的钩子。&#10;&#10;例如：&#10;1. 雨夜，林岚在旧书店收到匿名信；&#10;2. 信中提到只有姐姐知道的暗号；&#10;3. 她决定回雾港，却在码头遇见不肯透露身份的老周。"
-          @input="onSummaryInput"
+          :vim-enabled="vim.isEnabled(vimKey.chapterSummary)"
+          aria-label="章节大纲"
+          @update:model-value="onSummaryInput"
+          @update:vim-enabled="vim.setEnabled(vimKey.chapterSummary, $event)"
         />
 
         <div class="outline-hints">
@@ -182,20 +197,17 @@ async function removeChapter() {
   gap: 16px;
 }
 .title-input {
+  --editor-font-size: 24px;
+  --editor-line-height: 1.4;
+  --editor-font-family: var(--font-serif);
+  --editor-font-weight: 600;
+  --editor-letter-spacing: 0.02em;
+  --editor-padding: 2px 68px 2px 0;
   flex: 1;
   min-width: 0;
-  border: none;
-  background: transparent;
-  outline: none;
-  padding: 2px 0;
-  font-family: var(--font-serif);
-  font-size: 24px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: var(--ink);
   border-bottom: 1px solid transparent;
 }
-.title-input:focus {
+.title-input:focus-within {
   border-bottom-color: var(--border);
 }
 .head-actions {
@@ -298,20 +310,18 @@ async function removeChapter() {
 }
 
 .summary-text {
+  --editor-font-size: 15.5px;
+  --editor-line-height: 1.95;
+  --editor-font-family: var(--font-serif);
+  --editor-padding: 16px 18px 16px 18px;
+  --editor-min-height: 300px;
   width: 100%;
-  min-height: 300px;
-  padding: 16px 18px;
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--surface-2);
-  outline: none;
-  resize: vertical;
-  font-family: var(--font-serif);
-  font-size: 15.5px;
-  line-height: 1.95;
   color: var(--ink-soft);
 }
-.summary-text:focus {
+.summary-text:focus-within {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
   background: var(--surface);

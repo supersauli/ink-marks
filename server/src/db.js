@@ -4,6 +4,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { newId, now } from './util.js'
 import { DEFAULT_TEMPLATES, TEMPLATE_KINDS } from './templateDefaults.js'
+import { guessContextLength } from './usage.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const dataDir = process.env.NOVEL_DATA_DIR || path.resolve(here, '../data')
@@ -261,6 +262,8 @@ db.exec(`
     display_name TEXT NOT NULL DEFAULT '',
     temperature REAL NOT NULL DEFAULT 0.7,
     max_tokens INTEGER NOT NULL DEFAULT 4096,
+    context_length INTEGER NOT NULL DEFAULT 0,
+    extra_body TEXT NOT NULL DEFAULT '{}',
     is_default INTEGER NOT NULL DEFAULT 0,
     sort_order INTEGER NOT NULL DEFAULT 0
   );
@@ -272,9 +275,34 @@ db.exec(`
     role TEXT NOT NULL,
     content TEXT NOT NULL DEFAULT '',
     model_name TEXT,
+    usage_json TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL
   );
   CREATE INDEX IF NOT EXISTS idx_chat_project ON chat_messages(project_id, created_at);
+
+  -- 每一次 AI 调用的用量流水；精修 / 续写不写 chat_messages，所以单独记
+  CREATE TABLE IF NOT EXISTS llm_usage_logs (
+    id TEXT PRIMARY KEY,
+    project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+    scene TEXT NOT NULL DEFAULT 'chat',
+    model_name TEXT,
+    provider_name TEXT,
+    prompt_tokens INTEGER NOT NULL DEFAULT 0,
+    completion_tokens INTEGER NOT NULL DEFAULT 0,
+    total_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_hit_tokens INTEGER,
+    cache_miss_tokens INTEGER,
+    cache_hit_rate REAL,
+    context_length INTEGER NOT NULL DEFAULT 0,
+    context_used INTEGER NOT NULL DEFAULT 0,
+    context_rate REAL,
+    duration_ms INTEGER NOT NULL DEFAULT 0,
+    first_token_ms INTEGER,
+    estimated INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_usage_created ON llm_usage_logs(created_at);
+  CREATE INDEX IF NOT EXISTS idx_usage_project ON llm_usage_logs(project_id, created_at);
 
   CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
@@ -298,6 +326,19 @@ ensureColumn('attribute_logs', 'chapter_id', 'TEXT REFERENCES chapters(id) ON DE
 ensureColumn('item_events', 'chapter_id', 'TEXT REFERENCES chapters(id) ON DELETE SET NULL')
 // 作品级写作风格：写给 AI 的全局文风要求
 ensureColumn('projects', 'style_guide', "TEXT NOT NULL DEFAULT ''")
+// 用量统计：模型上下文窗口、聊天消息上的用量快照
+ensureColumn('models', 'context_length', 'INTEGER NOT NULL DEFAULT 0')
+ensureColumn('models', 'extra_body', "TEXT NOT NULL DEFAULT '{}'")
+ensureColumn('chat_messages', 'usage_json', "TEXT NOT NULL DEFAULT ''")
+// 生成速率：调用耗时与首字延迟（旧记录为 0 / NULL，统计时会自动跳过）
+ensureColumn('llm_usage_logs', 'duration_ms', 'INTEGER NOT NULL DEFAULT 0')
+ensureColumn('llm_usage_logs', 'first_token_ms', 'INTEGER')
+
+// 旧库按模型名补一个常见窗口，之后都可以在「设置 → 模型」里手动改
+for (const row of db.prepare('SELECT id, name FROM models WHERE context_length = 0').all()) {
+  const size = guessContextLength(row.name)
+  if (size) db.prepare('UPDATE models SET context_length = ? WHERE id = ?').run(size, row.id)
+}
 
 function seedProviders() {
   const count = db.prepare('SELECT COUNT(*) AS c FROM providers').get().c
@@ -332,8 +373,8 @@ function seedProviders() {
     ).run(providerId, seed.name, seed.baseUrl, '', 'openai', '{}', t, t)
     seed.models.forEach((model, index) => {
       db.prepare(
-        'INSERT INTO models (id, provider_id, name, display_name, temperature, max_tokens, is_default, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-      ).run(newId(), providerId, model.name, model.displayName, 0.7, 4096, model.isDefault, index * 10)
+      'INSERT INTO models (id, provider_id, name, display_name, temperature, max_tokens, context_length, is_default, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(newId(), providerId, model.name, model.displayName, 0.7, 4096, guessContextLength(model.name), model.isDefault, index * 10)
     })
   }
 }

@@ -1,8 +1,12 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import { PROVIDER_PRESETS, useSettingsStore } from '../stores/settings'
+import { useVimStore } from '../stores/vim'
+import UsagePanel from './UsagePanel.vue'
 
 const settings = useSettingsStore()
+const vim = useVimStore()
+const activeTab = ref<'models' | 'usage' | 'editor'>('models')
 
 // 一眼看出当前页面是不是最新构建
 const buildTime = typeof __BUILD_TIME__ === 'string' ? __BUILD_TIME__ : '开发模式'
@@ -33,6 +37,8 @@ interface ModelEdit {
   displayName: string
   temperature: number
   maxTokens: number
+  contextLength: number
+  extraBody: string
 }
 
 const modelEdits = reactive<Record<string, ModelEdit>>({})
@@ -167,7 +173,9 @@ function resetModelEdits() {
       name: model.name,
       displayName: model.displayName,
       temperature: model.temperature,
-      maxTokens: model.maxTokens
+      maxTokens: model.maxTokens,
+      contextLength: model.contextLength ?? 0,
+      extraBody: model.extraBody ?? '{}'
     }
   }
 }
@@ -180,13 +188,17 @@ async function saveModelRow(id: string) {
       name: edit.name.trim(),
       displayName: edit.displayName.trim() || edit.name.trim(),
       temperature: Number(edit.temperature),
-      maxTokens: Number(edit.maxTokens)
+      maxTokens: Number(edit.maxTokens),
+      contextLength: Number(edit.contextLength),
+      extraBody: edit.extraBody?.trim() || '{}'
     })
     modelEdits[id] = {
       name: updated.name,
       displayName: updated.displayName,
       temperature: updated.temperature,
-      maxTokens: updated.maxTokens
+      maxTokens: updated.maxTokens,
+      contextLength: updated.contextLength ?? 0,
+      extraBody: updated.extraBody ?? '{}'
     }
     flash('模型已保存')
   } catch (error) {
@@ -234,7 +246,9 @@ async function addModel(name?: string) {
       name: created.name,
       displayName: created.displayName,
       temperature: created.temperature,
-      maxTokens: created.maxTokens
+      maxTokens: created.maxTokens,
+      contextLength: created.contextLength ?? 0,
+      extraBody: created.extraBody ?? '{}'
     }
     remoteList.value = remoteList.value.filter((item) => item !== modelName)
     if (!name) {
@@ -263,10 +277,22 @@ function close() {
             <div class="modal-title">模型与服务商</div>
             <div class="modal-sub">所有配置保存在本地 SQLite，API Key 不会离开这台机器</div>
           </div>
+          <div class="head-tabs">
+            <button class="btn btn-sm" :class="{ 'btn-primary': activeTab === 'models' }" @click="activeTab = 'models'">
+              服务商与模型
+            </button>
+            <button class="btn btn-sm" :class="{ 'btn-primary': activeTab === 'usage' }" @click="activeTab = 'usage'">
+              用量统计
+            </button>
+            <button class="btn btn-sm" :class="{ 'btn-primary': activeTab === 'editor' }" @click="activeTab = 'editor'">
+              编辑器
+            </button>
+          </div>
           <button class="btn btn-icon btn-ghost" title="关闭" @click="close">✕</button>
         </header>
 
         <div class="settings-body">
+          <template v-if="activeTab === 'models'">
           <aside class="provider-list">
             <div class="list-head">服务商</div>
             <div class="providers scroll-y">
@@ -410,6 +436,16 @@ function close() {
                         @blur="saveModelRow(model.id)"
                       />
                     </div>
+                    <div class="model-line">
+                      <input
+                        v-if="modelEdits[model.id]"
+                        v-model="modelEdits[model.id].extraBody"
+                        class="input model-extra"
+                        placeholder="额外请求参数 JSON（可留空）"
+                        title='例如 {"reasoning_effort":"none"} 可关闭商汤 / DeepSeek 模型的默认深度思考'
+                        @blur="saveModelRow(model.id)"
+                      />
+                    </div>
                   </div>
                   <div class="model-params">
                     <label class="param">
@@ -434,6 +470,18 @@ function close() {
                         type="number"
                         min="128"
                         step="128"
+                        @blur="saveModelRow(model.id)"
+                      />
+                    </label>
+                    <label class="param" title="模型的上下文窗口大小，用于计算上下文占用率；填 0 表示不显示进度条">
+                      <span class="label">上下文长度</span>
+                      <input
+                        v-if="modelEdits[model.id]"
+                        v-model.number="modelEdits[model.id].contextLength"
+                        class="input"
+                        type="number"
+                        min="0"
+                        step="1024"
                         @blur="saveModelRow(model.id)"
                       />
                     </label>
@@ -465,6 +513,53 @@ function close() {
               <div v-else-if="flashMessage" class="form-ok">{{ flashMessage }}</div>
             </template>
           </section>
+          </template>
+
+          <section v-else-if="activeTab === 'editor'" class="editor-settings">
+            <div class="editor-section-head">
+              <div class="editor-section-title">Vim 编辑模式</div>
+              <div class="editor-section-sub">
+                正文、标题、摘要、大纲、写作风格等编辑区都支持 Vim 键位。每个编辑区右上角有一个开关，
+                可单独在「普通输入」与「Vim 模式」之间切换，选择会按编辑区记住。
+              </div>
+            </div>
+
+            <div class="editor-option">
+              <div class="editor-option-main">
+                <div class="editor-option-title">新编辑区默认开启 Vim</div>
+                <div class="editor-option-desc">
+                  打开后，尚未单独设置过的编辑区会默认进入 Vim 模式；已单独切换过的编辑区不受影响。
+                </div>
+              </div>
+              <button
+                type="button"
+                class="opt-switch"
+                :class="{ on: vim.defaultEnabled }"
+                role="switch"
+                :aria-checked="vim.defaultEnabled"
+                aria-label="新编辑区默认开启 Vim"
+                @click="vim.setDefault(!vim.defaultEnabled)"
+              >
+                <span class="opt-switch-knob"></span>
+                <span class="opt-switch-text">{{ vim.defaultEnabled ? '开' : '关' }}</span>
+              </button>
+            </div>
+
+            <div class="editor-help">
+              <div class="editor-help-title">常用键位</div>
+              <ul class="editor-help-list">
+                <li><code>i</code> 进入插入模式，<code>Esc</code> 回到普通模式</li>
+                <li><code>h j k l</code> 移动光标，<code>0 / $ / w / b</code> 行首行尾、按词跳</li>
+                <li><code>dd</code> 删除整行，<code>yy / p</code> 复制粘贴，<code>u</code> 撤销</li>
+                <li><code>o / O</code> 下方 / 上方新开一行，<code>v / V</code> 字符 / 行可视模式</li>
+                <li>标题等单行输入里不会插入换行；选中文字会弹出「改写 / 继续追问」气泡</li>
+              </ul>
+              <div class="editor-help-note">
+                关闭 Vim 后该编辑区回到普通输入框，所有已有内容都会原样保留。
+              </div>
+            </div>
+          </section>
+          <UsagePanel v-else class="usage-view" />
         </div>
 
         <footer class="modal-foot">
@@ -478,6 +573,132 @@ function close() {
 </template>
 
 <style scoped>
+.model-extra {
+  font-size: 11px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+.head-tabs {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+  margin-right: 10px;
+}
+.usage-view {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+.editor-settings {
+  grid-column: 1 / -1;
+  min-width: 0;
+  padding: 22px 26px 30px;
+  overflow-y: auto;
+}
+.editor-section-head {
+  margin-bottom: 18px;
+}
+.editor-section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.editor-section-sub {
+  margin-top: 5px;
+  max-width: 640px;
+  font-size: 12px;
+  line-height: 1.8;
+  color: var(--muted);
+}
+.editor-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+.editor-option-main {
+  min-width: 0;
+}
+.editor-option-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+.editor-option-desc {
+  margin-top: 4px;
+  max-width: 520px;
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--muted);
+}
+.opt-switch {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 76px;
+  padding: 5px 10px 5px 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+}
+.opt-switch-knob {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+  transition: transform 0.14s ease;
+}
+.opt-switch.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.opt-switch.on .opt-switch-knob {
+  transform: translateX(2px);
+  background: var(--accent);
+}
+.editor-help {
+  margin-top: 18px;
+  padding: 14px 18px;
+  border-left: 3px solid var(--accent-2);
+  border-radius: 0 10px 10px 0;
+  background: var(--accent-2-soft);
+}
+.editor-help-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+.editor-help-list {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 11.5px;
+  line-height: 2;
+  color: var(--ink-soft);
+}
+.editor-help-list code {
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10.5px;
+}
+.editor-help-note {
+  margin-top: 8px;
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--muted);
+}
 .settings-modal {
   max-width: 900px;
 }
@@ -706,6 +927,12 @@ function close() {
 .model-params {
   display: flex;
   gap: 8px;
+}
+.model-params .param {
+  flex: 1 1 0;
+}
+.model-params .param:last-child {
+  flex: 1.25 1 0;
 }
 .param {
   display: flex;

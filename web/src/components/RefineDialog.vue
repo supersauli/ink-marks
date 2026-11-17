@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { useNovelStore } from '../stores/novel'
 import { useSettingsStore } from '../stores/settings'
 import { streamChat } from '../api/client'
-import type { Block, RefineTarget } from '../api/types'
+import type { Block, RefineTarget, UsageStats } from '../api/types'
 import {
   buildBlockMessages,
   buildChapterSummaryMessages,
@@ -18,6 +18,7 @@ import { buildContextSections, buildStableContextSections, type ContextSection }
 import ContextInspector from './ContextInspector.vue'
 import DiffView from './DiffView.vue'
 import ModelSelect from './ModelSelect.vue'
+import UsageBadge from './UsageBadge.vue'
 
 const novel = useNovelStore()
 const settings = useSettingsStore()
@@ -35,6 +36,51 @@ const running = ref(false)
 const applying = ref(false)
 const error = ref('')
 const progress = ref('')
+const usageStats = ref<UsageStats | null>(null)
+
+// 批量改写会发起多次请求，这里把用量累加成一次「本次生成」的总账
+function accumulateUsage(next: UsageStats) {
+  const prev = usageStats.value
+  if (!prev) {
+    usageStats.value = { ...next }
+    return
+  }
+  const prompt = prev.promptTokens + next.promptTokens
+  const completion = prev.completionTokens + next.completionTokens
+  // 多次改写是串行发起的，总耗时为各次之和，速率按「总输出 ÷ 总耗时」重算
+  const duration = (prev.durationMs ?? 0) + (next.durationMs ?? 0)
+  const hit =
+    prev.cacheHitTokens === null || next.cacheHitTokens === null
+      ? null
+      : prev.cacheHitTokens + next.cacheHitTokens
+  usageStats.value = {
+    ...next,
+    promptTokens: prompt,
+    completionTokens: completion,
+    totalTokens: prev.totalTokens + next.totalTokens,
+    cacheHitTokens: hit,
+    cacheMissTokens:
+      prev.cacheMissTokens === null || next.cacheMissTokens === null
+        ? null
+        : prev.cacheMissTokens + next.cacheMissTokens,
+    cacheHitRate: hit !== null && prompt > 0 ? hit / prompt : null,
+    durationMs: duration,
+    firstTokenMs: prev.firstTokenMs ?? next.firstTokenMs ?? null,
+    tokensPerSecond:
+      duration > 0 && completion > 0 ? Math.round((completion / (duration / 1000)) * 10) / 10 : null,
+    estimated: prev.estimated || next.estimated,
+    contextUsed: Math.max(prev.contextUsed, next.contextUsed)
+  }
+}
+
+function sceneOf(): 'refine' | 'append' | 'summary' | 'outline' {
+  const value = target.value?.kind
+  if (value === 'append') return 'append'
+  if (value === 'outline') return 'outline'
+  if (value === 'chapter-summary') return 'summary'
+  return 'refine'
+}
+
 interface RefineOptionValues {
   includeStyle: boolean
   includeOutline: boolean
@@ -411,12 +457,13 @@ async function runMessages(messages: PromptMessage[], onUpdate: (text: string) =
   if (!model) throw new Error('还没有可用的模型，请先在设置中配置。')
   let buffer = ''
   await streamChat(
-    { modelId: model.id, messages },
+    { modelId: model.id, messages, projectId: novel.project?.id ?? '', scene: sceneOf() },
     {
       onDelta: (delta) => {
         buffer += delta
         onUpdate(buffer)
-      }
+      },
+      onUsage: accumulateUsage
     },
     controller?.signal
   )
@@ -436,6 +483,7 @@ async function generate() {
   error.value = ''
   singleResult.value = ''
   results.value = value.kind === 'blocks' ? targetBlocks.value.map(() => '') : []
+  usageStats.value = null
   running.value = true
   progress.value = ''
   controller = new AbortController()
@@ -771,6 +819,9 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
                 </div>
               </template>
             </div>
+            <div v-if="usageStats" class="refine-usage">
+              <UsageBadge :usage="usageStats" />
+            </div>
           </section>
 
           <section v-if="contextOpen" class="refine-context">
@@ -803,6 +854,16 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
 </template>
 
 <style scoped>
+.refine-usage {
+  flex: 0 0 auto;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.refine-usage :deep(.usage-badge) {
+  margin-top: 0;
+}
+
 .refine-modal {
   width: 96vw;
   max-width: 1560px;

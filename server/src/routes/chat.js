@@ -1,10 +1,12 @@
 import { Router } from 'express'
 import { db } from '../db.js'
 import { mapChatMessage } from '../mappers.js'
-import { newId, now, str } from '../util.js'
+import { newId, now, str, int, parseObj } from '../util.js'
+import { attachContext, attachTiming, estimateUsage, guessContextLength, normalizeUsage } from '../usage.js'
 import { buildHeaders, resolveEndpoint } from '../llm.js'
 
 const router = Router()
+const SCENES = new Set(['chat', 'refine', 'append', 'summary', 'outline', 'other'])
 
 router.get('/chat/messages', (req, res) => {
   const projectId = str(req.query.projectId)
@@ -20,14 +22,18 @@ router.post('/chat/messages', (req, res) => {
   if (!project) return res.status(400).json({ error: '作品不存在' })
   const role = ['user', 'assistant', 'system'].includes(body.role) ? body.role : 'user'
   const content = str(body.content)
+  const usageJson = body.usage && typeof body.usage === 'object' ? JSON.stringify(body.usage) : ''
   const id = newId()
   const t = now()
-  db.prepare('INSERT INTO chat_messages (id, project_id, role, content, model_name, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(
+  db.prepare(
+    'INSERT INTO chat_messages (id, project_id, role, content, model_name, usage_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(
     id,
     projectId,
     role,
     content,
     body.modelName ? str(body.modelName) : null,
+    usageJson,
     t
   )
   res.status(201).json(mapChatMessage(db.prepare('SELECT * FROM chat_messages WHERE id = ?').get(id)))
@@ -54,6 +60,10 @@ router.post('/chat/stream', async (req, res) => {
 
   const messages = Array.isArray(body.messages) ? body.messages : []
   if (!messages.length) return res.status(400).json({ error: '消息为空' })
+  const projectId = str(body.projectId)
+  const scene = SCENES.has(body.scene) ? body.scene : 'chat'
+  const contextLength = int(row.context_length, 0) || guessContextLength(row.name)
+  const maxTokens = typeof body.maxTokens === 'number' ? body.maxTokens : row.max_tokens
 
   let url
   try {
@@ -64,7 +74,7 @@ router.post('/chat/stream', async (req, res) => {
 
   const provider = { api_key: row.api_key, extra_headers: row.extra_headers }
   const headers = buildHeaders(provider)
-  const payload = {
+  const basePayload = {
     model: row.name,
     messages: messages.map((message) => ({
       role: ['system', 'assistant', 'user'].includes(message.role) ? message.role : 'user',
@@ -72,38 +82,91 @@ router.post('/chat/stream', async (req, res) => {
     })),
     stream: true,
     temperature: typeof body.temperature === 'number' ? body.temperature : row.temperature,
-    max_tokens: typeof body.maxTokens === 'number' ? body.maxTokens : row.max_tokens
+    max_tokens: maxTokens
   }
+  // 模型级额外参数：可用来关掉默认深度思考（如 {"reasoning_effort":"none"}）或调 top_p。
+  // 核心字段最后写回，避免配置误伤 model / messages / stream。
+  const extraBody = parseObj(row.extra_body)
+  const mergedPayload = {
+    ...basePayload,
+    ...extraBody,
+    model: row.name,
+    messages: basePayload.messages,
+    stream: true
+  }
+  // OpenAI / 多数兼容服务只有显式要求才会在流式响应里给 usage（DeepSeek 会直接给）
+  const payload = {
+    ...mergedPayload,
+    stream_options: { include_usage: true, ...(extraBody.stream_options ?? {}) }
+  }
+
+  // 生成速率用的计时：从请求发出算起，第一个内容片段到达时单独记一笔
+  const startedAt = Date.now()
+  let firstTokenAt = null
 
   const controller = new AbortController()
   // 注意：req 的 close 在请求体读取完成后就会触发，不能用来判断客户端断开
   res.on('close', () => {
     if (!res.writableEnded) controller.abort()
   })
-
-  let upstream
-  try {
-    upstream = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(payload),
-      signal: controller.signal
-    })
-  } catch (error) {
+  const requestInit = (value) => ({
+    method: 'POST',
+    headers,
+    body: JSON.stringify(value),
+    signal: controller.signal
+  })
+  const connectionError = (error) => {
     if (error.name === 'AbortError') return res.end()
     return res.status(502).json({ error: `连接模型服务失败：${error.message}` })
   }
-
-  if (!upstream.ok) {
-    const text = await upstream.text()
-    let message = text || upstream.statusText
+  const upstreamError = async (response, cachedText = '') => {
+    let text = cachedText
+    if (!text) {
+      try {
+        text = await response.text()
+      } catch {
+        text = ''
+      }
+    }
+    let message = text || response.statusText
     try {
       const parsed = JSON.parse(text)
       message = parsed?.error?.message || parsed?.message || message
     } catch {
       /* 非 JSON 错误体，直接使用原文 */
     }
-    return res.status(upstream.status).json({ error: `模型服务返回 ${upstream.status}：${String(message).slice(0, 500)}` })
+    return res.status(response.status).json({ error: `模型服务返回 ${response.status}：${String(message).slice(0, 500)}` })
+  }
+
+  let upstream
+  try {
+    upstream = await fetch(url, requestInit(payload))
+  } catch (error) {
+    return connectionError(error)
+  }
+
+  if (!upstream.ok) {
+    if (upstream.status === 400) {
+      let text = ''
+      try {
+        text = await upstream.text()
+      } catch {
+        /* 忽略读取失败 */
+      }
+      // 少数本地服务 / 代理不认识 stream_options，去掉这个参数重试一次
+      if (/stream_options|include_usage/i.test(text)) {
+        try {
+          upstream = await fetch(url, requestInit(mergedPayload))
+        } catch (error) {
+          return connectionError(error)
+        }
+        if (!upstream.ok) return upstreamError(upstream)
+      } else {
+        return upstreamError(upstream, text)
+      }
+    } else {
+      return upstreamError(upstream)
+    }
   }
 
   res.status(200)
@@ -117,18 +180,69 @@ router.post('/chat/stream', async (req, res) => {
     if (!res.writableEnded && !res.destroyed) res.write(`data: ${JSON.stringify(payload)}\n\n`)
   }
   let finished = false
+  let lastUsage = null
+  let completionText = ''
+  const markFirstToken = () => {
+    if (firstTokenAt === null) firstTokenAt = Date.now()
+  }
+
+  // 流结束（或被中断）时统一算一次用量：优先用上游上报，没有就按字符估算
+  const finishUsage = () => {
+    try {
+      const base = lastUsage
+        ? normalizeUsage(lastUsage, { messages, completionText })
+        : estimateUsage(messages, completionText)
+      const usage = attachTiming(attachContext(base, contextLength, maxTokens), {
+        durationMs: Date.now() - startedAt,
+        firstTokenMs: firstTokenAt === null ? null : firstTokenAt - startedAt
+      })
+      db.prepare(
+        `INSERT INTO llm_usage_logs
+         (id, project_id, scene, model_name, provider_name, prompt_tokens, completion_tokens, total_tokens,
+          cache_hit_tokens, cache_miss_tokens, cache_hit_rate, context_length, context_used, context_rate,
+          duration_ms, first_token_ms, estimated, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        newId(),
+        projectId || null,
+        scene,
+        row.name,
+        row.provider_name ?? '',
+        usage.promptTokens,
+        usage.completionTokens,
+        usage.totalTokens,
+        usage.cacheHitTokens,
+        usage.cacheMissTokens,
+        usage.cacheHitRate,
+        usage.contextLength,
+        usage.contextUsed,
+        usage.contextRate,
+        usage.durationMs,
+        usage.firstTokenMs,
+        usage.estimated ? 1 : 0,
+        now()
+      )
+      send({ usage })
+    } catch (error) {
+      console.error('[usage] 记录本次调用用量失败：', error.message)
+    }
+  }
 
   const contentType = upstream.headers.get('content-type') || ''
   if (!contentType.includes('text/event-stream')) {
     try {
       const data = await upstream.json()
       const content = data?.choices?.[0]?.message?.content ?? ''
-      if (typeof content === 'string' && content) send({ delta: content })
-      send({ done: true, usage: data?.usage ?? null })
+      if (typeof content === 'string' && content) {
+        completionText += content
+        send({ delta: content })
+      }
+      lastUsage = data?.usage ?? null
     } catch (error) {
       send({ error: `解析模型响应失败：${error.message}` })
-      send({ done: true })
     }
+    finishUsage()
+    send({ done: true, ok: true })
     res.end()
     return
   }
@@ -159,10 +273,22 @@ router.post('/chat/stream', async (req, res) => {
     const choice = json.choices?.[0]
     const delta = choice?.delta?.content
     const reasoning = choice?.delta?.reasoning ?? choice?.delta?.reasoning_content
-    if (typeof reasoning === 'string' && reasoning) send({ reasoning })
-    if (typeof delta === 'string' && delta) send({ delta })
-    if (!delta && typeof choice?.text === 'string' && choice.text) send({ delta: choice.text })
-    if (json.usage) send({ usage: json.usage })
+    if (typeof reasoning === 'string' && reasoning) {
+      markFirstToken()
+      completionText += reasoning
+      send({ reasoning })
+    }
+    if (typeof delta === 'string' && delta) {
+      markFirstToken()
+      completionText += delta
+      send({ delta })
+    }
+    if (!delta && typeof choice?.text === 'string' && choice.text) {
+      markFirstToken()
+      completionText += choice.text
+      send({ delta: choice.text })
+    }
+    if (json.usage && typeof json.usage === 'object') lastUsage = json.usage
   }
 
   try {
@@ -182,6 +308,7 @@ router.post('/chat/stream', async (req, res) => {
       send({ error: `读取模型流失败：${error.message}` })
     }
   } finally {
+    finishUsage()
     send({ done: true, ok: finished })
     if (!res.writableEnded && !res.destroyed) res.end()
   }

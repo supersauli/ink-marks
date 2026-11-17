@@ -442,8 +442,79 @@ export interface Model {
   displayName: string
   temperature: number
   maxTokens: number
+  contextLength: number
+  extraBody: string
   isDefault: boolean
   sortOrder: number
+}
+
+/** 单次 AI 调用的用量（后端归一化后的结构） */
+export interface UsageStats {
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
+  cacheHitTokens: number | null
+  cacheMissTokens: number | null
+  cacheHitRate: number | null
+  estimated: boolean
+  contextLength: number
+  contextUsed: number
+  contextRemaining: number | null
+  contextRate: number | null
+  durationMs: number
+  firstTokenMs: number | null
+  tokensPerSecond: number | null
+}
+
+export interface UsageSummary {
+  requests: number
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
+  cacheHitTokens: number
+  cacheMissTokens: number
+  cacheHitRate: number | null
+  cacheReported: number
+  estimatedCount: number
+  maxContextRate: number | null
+  durationMs: number
+  timedRequests: number
+  avgTokensPerSecond: number | null
+}
+
+export interface UsageGroup extends UsageSummary {
+  name: string
+}
+
+export interface UsageLog {
+  id: string
+  projectId: string | null
+  scene: string
+  modelName: string | null
+  providerName: string | null
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
+  cacheHitTokens: number | null
+  cacheMissTokens: number | null
+  cacheHitRate: number | null
+  contextLength: number
+  contextUsed: number
+  contextRate: number | null
+  durationMs: number
+  firstTokenMs: number | null
+  tokensPerSecond: number | null
+  estimated: boolean
+  createdAt: string
+}
+
+export interface UsageStatsResult {
+  range: { days: number; since: string; projectId: string }
+  totals: UsageSummary
+  byModel: UsageGroup[]
+  byScene: UsageGroup[]
+  byDay: UsageGroup[]
+  recent: UsageLog[]
 }
 
 export interface Provider {
@@ -464,6 +535,7 @@ export interface ChatMessage {
   role: 'user' | 'assistant' | 'system'
   content: string
   modelName: string | null
+  usage?: UsageStats | null
   createdAt: string
 }
 

@@ -2,10 +2,13 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useNovelStore } from '../stores/novel'
 import { useChatStore } from '../stores/chat'
+import { useVimStore, vimKey } from '../stores/vim'
+import VimTextarea from './VimTextarea.vue'
 import type { Block } from '../api/types'
 
 const novel = useNovelStore()
 const chat = useChatStore()
+const vim = useVimStore()
 
 const chapter = computed(() => novel.chapter)
 const blocks = computed(() => chapter.value?.blocks ?? [])
@@ -25,7 +28,22 @@ interface BubbleState {
 
 const bubble = ref<BubbleState | null>(null)
 let anchorId: string | null = null
-const textareas = new Map<string, HTMLTextAreaElement>()
+
+interface VimEditorHandle {
+  focus: () => void
+  setSelection: (start: number, end: number) => void
+  currentSelection: () => { start: number; end: number; text: string } | null
+}
+const editors = new Map<string, VimEditorHandle>()
+
+interface VimSelectionPayload {
+  start: number
+  end: number
+  text: string
+  clientX?: number
+  clientY?: number
+  source: 'mouse' | 'keyboard' | 'vim'
+}
 
 // 从左侧搜索结果进入正文时，定位并高亮命中的段落
 const flashBlockId = ref<string | null>(null)
@@ -47,28 +65,17 @@ function focusSearchBlock() {
   })
 }
 
-function autoResize(element: HTMLTextAreaElement) {
-  element.style.height = 'auto'
-  element.style.height = `${Math.max(element.scrollHeight, 30)}px`
-}
-
-function resizeAll() {
-  for (const element of textareas.values()) autoResize(element)
-}
-
-function bindTextarea(blockId: string, element: unknown) {
-  if (element instanceof HTMLTextAreaElement) {
-    textareas.set(blockId, element)
-    autoResize(element)
+function bindEditor(blockId: string, instance: unknown) {
+  const handle = instance as VimEditorHandle | null
+  if (handle && typeof handle.focus === 'function') {
+    editors.set(blockId, handle)
   } else {
-    textareas.delete(blockId)
+    editors.delete(blockId)
   }
 }
 
-function onBlockInput(block: Block, event: Event) {
-  const textarea = event.target as HTMLTextAreaElement
-  novel.editBlockText(block.id, textarea.value)
-  autoResize(textarea)
+function onBlockInput(block: Block, value: string) {
+  novel.editBlockText(block.id, value)
 }
 
 function placeBubble(x: number, y: number, block: Block, start: number, end: number, text: string) {
@@ -80,27 +87,14 @@ function placeBubble(x: number, y: number, block: Block, start: number, end: num
   }
 }
 
-function onBlockMouseUp(block: Block, event: MouseEvent) {
-  const textarea = event.currentTarget as HTMLTextAreaElement
-  const start = textarea.selectionStart ?? 0
-  const end = textarea.selectionEnd ?? 0
-  const text = textarea.value.slice(start, end)
-  if (!text.trim() || start === end) {
+function onBlockSelection(block: Block, payload: VimSelectionPayload) {
+  if (!payload.text.trim() || payload.start === payload.end) {
     bubble.value = null
     return
   }
-  placeBubble(event.clientX, event.clientY, block, start, end, text)
-}
-
-function onBlockKeyUp(block: Block, event: KeyboardEvent) {
-  if (!event.shiftKey) return
-  const textarea = event.currentTarget as HTMLTextAreaElement
-  const start = textarea.selectionStart ?? 0
-  const end = textarea.selectionEnd ?? 0
-  const text = textarea.value.slice(start, end)
-  if (!text.trim() || start === end) return
-  const rect = textarea.getBoundingClientRect()
-  placeBubble(rect.left + Math.min(rect.width / 2, 260), Math.max(rect.top, 80), block, start, end, text)
+  const x = payload.clientX ?? window.innerWidth / 2
+  const y = payload.clientY ?? 120
+  placeBubble(x, y, block, payload.start, payload.end, payload.text)
 }
 
 function hideBubble() {
@@ -181,11 +175,7 @@ async function addBlock() {
   const created = await novel.addBlock()
   await nextTick()
   if (created) {
-    const textarea = textareas.get(created.id)
-    if (textarea) {
-      textarea.focus()
-      autoResize(textarea)
-    }
+    editors.get(created.id)?.focus()
   }
 }
 
@@ -227,22 +217,6 @@ function onScroll(event: Event) {
 }
 
 watch(
-  () => blocks.value.length,
-  async () => {
-    await nextTick()
-    resizeAll()
-  }
-)
-
-watch(
-  () => novel.revisions.length,
-  async () => {
-    await nextTick()
-    resizeAll()
-  }
-)
-
-watch(
   () => novel.refineTarget,
   (target) => {
     if (!target) {
@@ -262,7 +236,6 @@ watch(
 onMounted(() => {
   document.addEventListener('mousedown', onDocumentMouseDown)
   window.addEventListener('keydown', onKeydown)
-  nextTick(resizeAll)
   focusSearchBlock()
 })
 
@@ -329,15 +302,16 @@ onBeforeUnmount(() => {
           </button>
 
           <div class="block-main">
-            <textarea
-              :ref="(element) => bindTextarea(block.id, element)"
+            <VimTextarea
+              :ref="(element) => bindEditor(block.id, element)"
               class="block-text"
-              :value="block.text"
+              :model-value="block.text"
               placeholder="写下这一段……"
-              spellcheck="false"
-              @input="onBlockInput(block, $event)"
-              @mouseup="onBlockMouseUp(block, $event)"
-              @keyup="onBlockKeyUp(block, $event)"
+              :vim-enabled="vim.isEnabled(vimKey.block(block.id))"
+              aria-label="正文段落"
+              @update:model-value="onBlockInput(block, $event)"
+              @update:vim-enabled="vim.setEnabled(vimKey.block(block.id), $event)"
+              :selection-handler="(payload) => onBlockSelection(block, payload)"
             />
 
             <div v-if="showInstructions && block.instruction" class="block-note">
@@ -547,31 +521,17 @@ onBeforeUnmount(() => {
 }
 
 .block-text {
+  --editor-font-size: 17px;
+  --editor-line-height: 1.95;
+  --editor-font-family: var(--font-serif);
+  --editor-letter-spacing: 0.01em;
+  --editor-indent: 2em;
   display: block;
   width: 100%;
-  min-height: 30px;
-  padding: 3px 6px;
-  border: none;
   border-radius: 6px;
-  background: transparent;
-  outline: none;
-  resize: none;
-  overflow: hidden;
-  field-sizing: content;
-  font-family: var(--font-serif);
-  font-size: 17px;
-  line-height: 1.95;
-  letter-spacing: 0.01em;
-  color: var(--ink);
-  text-indent: 2em;
-  caret-color: var(--accent);
+  transition: background 0.14s ease, box-shadow 0.14s ease;
 }
-.block-text::placeholder {
-  color: var(--muted);
-  opacity: 0.65;
-  font-size: 14px;
-}
-.block-text:focus {
+.block-text:focus-within {
   background: var(--surface);
   box-shadow: inset 0 0 0 1px var(--border);
 }

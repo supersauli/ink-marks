@@ -14,6 +14,7 @@ import revisionsRouter from './routes/revisions.js'
 import versionsRouter from './routes/versions.js'
 import providersRouter from './routes/providers.js'
 import chatRouter from './routes/chat.js'
+import usageRouter from './routes/usage.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const app = express()
@@ -35,6 +36,7 @@ app.use('/api', revisionsRouter)
 app.use('/api', versionsRouter)
 app.use('/api', providersRouter)
 app.use('/api', chatRouter)
+app.use('/api', usageRouter)
 
 app.use('/api', (req, res) => {
   res.status(404).json({ error: '接口不存在' })

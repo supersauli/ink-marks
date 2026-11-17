@@ -1,3 +1,5 @@
+import { parseObj } from './util.js'
+
 export const mapProject = (row) => ({
   id: row.id,
   name: row.name,
@@ -221,6 +223,8 @@ export const mapModel = (row) => ({
   displayName: row.display_name,
   temperature: row.temperature,
   maxTokens: row.max_tokens,
+  contextLength: row.context_length ?? 0,
+  extraBody: row.extra_body ?? '{}',
   isDefault: row.is_default === 1,
   sortOrder: row.sort_order
 })
@@ -242,5 +246,6 @@ export const mapChatMessage = (row) => ({
   role: row.role,
   content: row.content,
   modelName: row.model_name,
+  usage: Object.keys(parseObj(row.usage_json)).length ? parseObj(row.usage_json) : null,
   createdAt: row.created_at
 })

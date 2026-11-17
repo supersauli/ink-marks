@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>用量展示 · 效果预览</title>
+<style>
+  :root {
+    --bg: #f4f3ef; --surface: #ffffff; --surface-2: #faf9f6; --surface-3: #f0eee8;
+    --border: #e5e2da; --ink: #2f2e2a; --ink-soft: #56534c; --muted: #8b887f;
+    --accent: #3f6fa6; --accent-soft: #eaf1f9; --good: #0f6e56; --warn: #ba7517; --danger: #a32d2d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 26px 28px 40px; background: var(--bg); color: var(--ink);
+    font: 13px/1.6 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+  }
+  .head { display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap; margin-bottom: 20px; }
+  h1 { margin: 0; font: 500 21px/1.3 Georgia, "Songti SC", "SimSun", serif; letter-spacing: .04em; }
+  .sub { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+  .tag { margin-left: auto; padding: 4px 10px; border: 1px solid var(--border); border-radius: 20px; background: var(--surface); color: var(--muted); font-size: 11px; }
+  .layout { display: grid; grid-template-columns: minmax(330px, 430px) minmax(0, 1fr); gap: 18px; align-items: start; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 11px 14px; border-bottom: 1px solid var(--border); background: var(--surface-2); }
+  .card-title { font-size: 12.5px; font-weight: 600; }
+  .card-note { font-size: 11px; color: var(--muted); }
+  .scenes { display: flex; flex-wrap: wrap; gap: 6px; padding: 12px 14px 4px; }
+  .scene-btn { padding: 5px 10px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); color: var(--ink-soft); font-size: 11.5px; cursor: pointer; }
+  .scene-btn:hover { border-color: var(--accent); }
+  .scene-btn.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+  .chat { padding: 8px 14px 16px; min-height: 268px; }
+  .msg { display: flex; gap: 9px; align-items: flex-start; }
+  .avatar { flex: 0 0 24px; height: 24px; border-radius: 7px; background: var(--accent-soft); color: var(--accent); display: flex; align-items: center; justify-content: center; font-size: 12px; }
+  .msg-body { min-width: 0; flex: 1; }
+  .meta { font-size: 10.5px; color: var(--muted); margin-bottom: 4px; }
+  .bubble { padding: 10px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface-2); font-size: 12.5px; line-height: 1.8; color: var(--ink-soft); min-height: 62px; white-space: pre-wrap; }
+  .cursor { color: var(--accent); animation: blink 1s steps(2) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .badge { margin-top: 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--muted); font-size: 10.5px; opacity: 0; transform: translateY(4px); transition: opacity .28s ease, transform .28s ease; }
+  .badge.show { opacity: 1; transform: none; }
+  .badge-line { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+  .badge-line b { color: var(--ink-soft); font-weight: 600; }
+  .badge-line b.good { color: var(--good); }
+  .badge-line b.speed { color: var(--accent); }
+  .est { padding: 0 5px; border-radius: 4px; background: var(--surface-3); }
+  .ctx { margin-top: 7px; padding-top: 7px; border-top: 1px solid var(--border); }
+  .ctx-label { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 5px; }
+  .ctx-label b { color: var(--ink-soft); font-weight: 600; }
+  .bar { height: 5px; border-radius: 3px; background: var(--surface-3); overflow: hidden; }
+  .bar > div { height: 100%; border-radius: 3px; width: 0; transition: width .5s ease; }
+  .play-row { display: flex; align-items: center; gap: 10px; padding: 0 14px 14px; }
+  .play { padding: 6px 14px; border: 1px solid var(--accent); border-radius: 7px; background: var(--accent); color: #fff; font-size: 12px; cursor: pointer; }
+  .play:hover { opacity: .9; }
+  .play-hint { font-size: 10.5px; color: var(--muted); }
+  .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+  .metric { padding: 12px 13px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); }
+  .metric span { display: block; }
+  .m-label { font-size: 11px; color: var(--muted); }
+  .m-value { font-size: 23px; line-height: 1.3; color: var(--ink); }
+  .m-value.good { color: var(--good); }
+  .m-value .unit { font-size: 11px; color: var(--muted); }
+  .m-note { font-size: 10.5px; color: var(--muted); }
+  .panel { padding: 14px; }
+  .note { margin: 12px 0 16px; font-size: 11px; line-height: 1.8; color: var(--muted); }
+  .cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+  .block { padding: 11px 13px; border: 1px solid var(--border); border-radius: 10px; }
+  .block-title { font-size: 12px; font-weight: 600; margin-bottom: 8px; }
+  .row { display: grid; grid-template-columns: minmax(0, 1.5fr) .65fr .65fr .65fr; gap: 8px; padding: 6px 0; border-top: 1px solid var(--border); font-size: 11px; color: var(--ink-soft); }
+  .row > :nth-child(n+2) { text-align: right; color: var(--muted); }
+  .row .good { color: var(--good) !important; }
+  .day-chart { display: flex; align-items: flex-end; gap: 5px; height: 92px; margin-top: 6px; }
+  .day-col { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; gap: 4px; }
+  .day-bar { width: 100%; max-width: 26px; border-radius: 3px 3px 0 0; background: var(--accent); opacity: .75; }
+  .day-label { font-size: 9.5px; color: var(--muted); }
+  .log-row, .log-head { grid-template-columns: minmax(0, 1.3fr) .7fr minmax(0, 1.1fr) .9fr .7fr .6fr .9fr; }
+  .log-head { color: var(--muted); font-size: 10.5px; }
+  .log-head > :nth-child(n+2) { text-align: left; }
+  .log-row > :nth-child(n+2) { text-align: left; }
+  .foot { margin-top: 20px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); font-size: 11.5px; line-height: 1.9; color: var(--ink-soft); }
+  .foot b { color: var(--ink); }
+  @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+  <div class="head">
+    <div>
+      <h1>用量展示 · 效果预览</h1>
+      <p class="sub">AI 返回后记录 token 消耗、缓存命中率与上下文占用 —— 对话栏、精修弹窗与设置里的统计页</p>
+    </div>
+    <span class="tag">模拟数据 · 不会发起真实请求</span>
+  </div>
+
+  <div class="layout">
+    <div class="card">
+      <div class="card-head"><span class="card-title">对话栏 · 每次回复下方</span><span class="card-note">点场景可切换不同服务商表现</span></div>
+      <div class="scenes" id="scenes"></div>
+      <div class="chat">
+        <div class="msg">
+          <div class="avatar">✦</div>
+          <div class="msg-body">
+            <div class="meta" id="meta">DeepSeek Chat · 刚刚</div>
+            <div class="bubble"><span id="answer"></span><span class="cursor" id="cursor">▍</span></div>
+            <div class="badge" id="badge"></div>
+          </div>
+        </div>
+      </div>
+      <div class="play-row">
+        <button class="play" id="play">重新播放流式返回</button>
+        <span class="play-hint">回复结束后，用量条由最后一次 usage 事件渲染</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><span class="card-title">设置 · 用量统计</span><span class="card-note">近 30 天 · 数据来自本地 SQLite</span></div>
+      <div class="panel">
+        <div class="metrics">
+          <div class="metric"><span class="m-label">调用次数</span><span class="m-value">148</span><span class="m-note">输入 1.2M · 输出 186K</span></div>
+          <div class="metric"><span class="m-label">总 token</span><span class="m-value">1.4M</span><span class="m-note">1,386,204 tokens</span></div>
+          <div class="metric"><span class="m-label">缓存命中率</span><span class="m-value good">71%</span><span class="m-note">132 次调用上报缓存字段</span></div>
+          <div class="metric"><span class="m-label">上下文峰值</span><span class="m-value">96%</span><span class="m-note">占模型窗口的最大比例</span></div>
+          <div class="metric"><span class="m-label">平均生成速率</span><span class="m-value">86.4 <small class="unit">tok/s</small></span><span class="m-note">输出 token ÷ 调用耗时</span></div>
+        </div>
+        <p class="note">命中率 = 命中 token ÷ 输入 token，只统计服务商实际上报了缓存字段的调用；本地模型未返回用量时按字符数估算并标记「估算」。上下文占用 = 本次输入 token ÷ 模型窗口，剩余量已扣除为输出预留的 max_tokens。生成速率 = 输出 token ÷ 本次调用耗时（从请求发出到流结束，含首字等待），平均值按有耗时记录的调用加权。</p>
+        <div class="cols">
+          <div class="block">
+            <div class="block-title">按模型</div>
+            <div class="row"><span>deepseek-chat</span><span>96 次</span><span>1.1M</span><span class="good">78%</span></div>
+            <div class="row"><span>gpt-4o-mini</span><span>31 次</span><span>212K</span><span>12%</span></div>
+            <div class="row"><span>llama3.1</span><span>21 次</span><span>74K</span><span>—</span></div>
+          </div>
+          <div class="block">
+            <div class="block-title">按场景</div>
+            <div class="row"><span>对话</span><span>72 次</span><span>842K</span><span class="good">74%</span></div>
+            <div class="row"><span>段落精修</span><span>48 次</span><span>391K</span><span class="good">69%</span></div>
+            <div class="row"><span>续写正文</span><span>21 次</span><span>118K</span><span class="good">66%</span></div>
+            <div class="row"><span>章节大纲</span><span>7 次</span><span>35K</span><span>52%</span></div>
+          </div>
+        </div>
+        <div class="block" style="margin-bottom:14px">
+          <div class="block-title">每日 token 消耗</div>
+          <div class="day-chart" id="days"></div>
+        </div>
+        <div class="block">
+          <div class="block-title">最近调用</div>
+          <div class="row log-head"><span>时间</span><span>场景</span><span>模型</span><span>输入 / 输出</span><span>缓存</span><span>上下文</span><span>速率</span></div>
+          <div class="row log-row" id="latest"></div>
+          <div class="row log-row"><span>11-10 14:32</span><span>段落精修</span><span>deepseek-chat</span><span>9,104 / 738</span><span>81%</span><span>7%</span><span>79.4 tok/s</span></div>
+          <div class="row log-row"><span>11-10 14:18</span><span>对话</span><span>deepseek-chat</span><span>7,860 / 402</span><span>76%</span><span>6%</span><span>72.1 tok/s</span></div>
+          <div class="row log-row"><span>11-10 13:57</span><span>续写正文</span><span>llama3.1</span><span>6,318 / 487</span><span>— 估算</span><span>77%</span><span>152.2 tok/s</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="foot">
+    <b>字段来源</b>：DeepSeek 用 <code>prompt_cache_hit_tokens</code> / <code>prompt_tokens</code>，OpenAI 用 <code>prompt_tokens_details.cached_tokens</code>，Anthropic 风格用 <code>cache_read_input_tokens</code>，后端统一归一化后再下发。<br />
+    <b>上下文长度</b>：在「设置 → 服务商与模型」里逐个配置（已有常见模型预设，可手改），与「最大 tokens」（输出上限）是两回事。<br />
+    <b>生成速率</b>：输出 token ÷ 本次调用耗时（从请求发出到流结束，含首字等待），批量改写按「总输出 ÷ 总耗时」累加；鼠标悬停可看耗时与首字延迟。<br />
+    <b>记录范围</b>：对话、段落精修、续写、大纲等所有走 <code>/api/chat/stream</code> 的调用都会写入独立用量表，清空聊天记录不会删掉统计。
+  </div>
+
+<script>
+  const SCENES = [
+    {
+      key: 'deepseek', label: 'DeepSeek · 高命中', model: 'DeepSeek Chat',
+      answer: '这一章的节奏偏快，建议把雨夜来信拆成两场：先写她认出字迹，再让潮水声进来。第二段末尾那句「我记一下」可以留白，不必解释她为什么发抖。',
+      prompt: 8432, completion: 612, hit: 6577, ctx: 128000, duration: 8400, first: 1200, estimated: false
+    },
+    {
+      key: 'openai', label: 'OpenAI · 未命中', model: 'GPT-4o mini',
+      answer: '人物动机基本成立，但老周那句提醒出现得太早。可以把信息往后挪一章，先让读者以为他只是不欢迎外人，再由信纸背面的字迹把怀疑带出来。',
+      prompt: 12760, completion: 1204, hit: 0, ctx: 128000, duration: 9600, first: 900, estimated: false
+    },
+    {
+      key: 'estimate', label: '本地模型 · 估算', model: 'Llama 3.1',
+      answer: '这一段的环境描写够用，缺的是林岚的身体反应。加一个她把信封翻过来又翻回去的小动作，比直接写「她很害怕」更贴。',
+      prompt: 6318, completion: 487, hit: null, ctx: 8192, duration: 3200, first: 380, estimated: true
+    },
+    {
+      key: 'near', label: '接近上下文上限', model: 'DeepSeek Chat',
+      answer: '已读到全书设定与前文。综合第 1—48 章的伏笔，这一章收束时建议让「潮水退去」这个意象第二次出现，和开篇那封信形成闭环；老周不必说出真相，留一个动作即可。',
+      prompt: 122880, completion: 2041, hit: 111821, ctx: 128000, duration: 26800, first: 2100, estimated: false
+    }
+  ]
+
+  const fmt = (n) => new Intl.NumberFormat('zh-CN').format(Math.round(n))
+  function short(n) {
+    if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M'
+    if (n >= 10000) return Math.round(n / 1000) + 'K'
+    if (n >= 1000) return (n / 1000).toFixed(1) + 'K'
+    return String(Math.round(n))
+  }
+  let active = 0
+  let timer = null
+
+  function badgeHtml(s) {
+    const rate = s.hit === null ? null : Math.round(s.hit / s.prompt * 100)
+    const used = s.prompt / s.ctx
+    const percent = Math.round(used * 100)
+    const remaining = Math.max(0, s.ctx - s.prompt - 4096)
+    const color = used >= 0.9 ? 'var(--danger)' : used >= 0.7 ? 'var(--warn)' : 'var(--accent)'
+    const speed = (s.completion / (s.duration / 1000)).toFixed(1)
+    const timing = '输出 ' + fmt(s.completion) + ' token · 总耗时 ' + (s.duration / 1000).toFixed(1) + 's · 首字 ' + (s.first / 1000).toFixed(1) + 's · 首字后 ' + (s.completion / ((s.duration - s.first) / 1000)).toFixed(1) + ' tok/s · 速率 = 输出 token ÷ 总耗时（含首字等待）'
+    return '<div class="badge-line">' +
+      '<span>输入 <b>' + fmt(s.prompt) + '</b></span>' +
+      '<span>输出 <b>' + fmt(s.completion) + '</b></span>' +
+      '<span>缓存命中 <b class="' + (rate !== null && rate >= 50 ? 'good' : '') + '">' + (rate === null ? '—' : rate + '%') + '</b></span>' +
+      '<span title="' + timing + '">生成速率 <b class="speed">' + speed + ' tok/s</b></span>' +
+      (s.estimated ? '<span class="est">估算</span>' : '') +
+      '</div><div class="ctx"><div class="ctx-label"><span>上下文 <b>' + short(s.prompt) + ' / ' + short(s.ctx) + '</b></span>' +
+      '<span>' + percent + '% · 余 ' + short(remaining) + '</span></div>' +
+      '<div class="bar"><div data-width="' + Math.max(1.5, Math.min(100, used * 100)) + '" style="background:' + color + '"></div></div></div>'
+  }
+
+  function renderScenes() {
+    document.getElementById('scenes').innerHTML = SCENES.map((s, i) =>
+      '<button class="scene-btn' + (i === active ? ' active' : '') + '" data-index="' + i + '">' + s.label + '</button>'
+    ).join('')
+    document.querySelectorAll('.scene-btn').forEach((btn) => {
+      btn.addEventListener('click', () => { active = Number(btn.dataset.index); renderScenes(); play() })
+    })
+  }
+
+  function latestHtml(s) {
+    const rate = s.hit === null ? '— 估算' : Math.round(s.hit / s.prompt * 100) + '%'
+    const names = { deepseek: 'deepseek-chat', openai: 'gpt-4o-mini', estimate: 'llama3.1', near: 'deepseek-chat' }
+    const scenes = { deepseek: '对话', openai: '对话', estimate: '续写正文', near: '段落精修' }
+    return '<span>11-10 15:12 <b style="color:var(--accent)">刚刚</b></span><span>' + scenes[s.key] + '</span>' +
+      '<span>' + names[s.key] + '</span><span>' + short(s.prompt) + ' / ' + short(s.completion) + '</span>' +
+      '<span>' + rate + '</span><span>' + Math.round(s.prompt / s.ctx * 100) + '%</span>' +
+      '<span>' + (s.completion / (s.duration / 1000)).toFixed(1) + ' tok/s</span>'
+  }
+
+  function play() {
+    const s = SCENES[active]
+    clearInterval(timer)
+    const answer = document.getElementById('answer')
+    const badge = document.getElementById('badge')
+    const cursor = document.getElementById('cursor')
+    answer.textContent = ''
+    badge.classList.remove('show')
+    badge.innerHTML = ''
+    cursor.style.display = 'inline'
+    document.getElementById('meta').textContent = s.model + ' · 刚刚'
+    document.getElementById('latest').innerHTML = latestHtml(s)
+    let i = 0
+    timer = setInterval(() => {
+      i += 2
+      answer.textContent = s.answer.slice(0, i)
+      if (i >= s.answer.length) {
+        clearInterval(timer)
+        cursor.style.display = 'none'
+        badge.innerHTML = badgeHtml(s)
+        badge.classList.add('show')
+        requestAnimationFrame(() => {
+          const bar = badge.querySelector('.bar > div')
+          if (bar) bar.style.width = bar.dataset.width + '%'
+        })
+      }
+    }, 16)
+  }
+
+  const dayData = [38, 52, 44, 71, 63, 88, 74, 96, 61, 82, 55, 42, 68, 91, 77, 100, 84, 59, 73, 66]
+  document.getElementById('days').innerHTML = dayData.map((v, i) =>
+    '<div class="day-col" title="11-' + String(i + 1).padStart(2, '0') + ' · ' + fmt(v * 820) + ' tokens">' +
+    '<div class="day-bar" style="height:' + v + '%"></div><span class="day-label">' + (i + 1) + '</span></div>'
+  ).join('')
+
+  renderScenes()
+  play()
+  document.getElementById('play').addEventListener('click', play)
+</script>
+</body>
+</html>

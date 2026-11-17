@@ -26,6 +26,9 @@ import type {
   Provider,
   Revision,
   TemplateKind,
+  UsageLog,
+  UsageStats,
+  UsageStatsResult,
   VersionDetail,
   VersionInfo,
   VersionTargetType
@@ -93,11 +96,18 @@ export interface StreamPayload {
   messages: Array<{ role: string; content: string }>
   temperature?: number
   maxTokens?: number
+  projectId?: string
+  scene?: 'chat' | 'refine' | 'append' | 'summary' | 'outline' | 'other'
 }
 
 export async function streamChat(
   payload: StreamPayload,
-  handlers: { onDelta: (delta: string) => void; onReasoning?: (delta: string) => void; onDone?: () => void },
+  handlers: {
+    onDelta: (delta: string) => void
+    onReasoning?: (delta: string) => void
+    onUsage?: (usage: UsageStats) => void
+    onDone?: () => void
+  },
   signal?: AbortSignal
 ): Promise<void> {
   let response: Response
@@ -141,7 +151,7 @@ export async function streamChat(
           if (!line.startsWith('data:')) continue
           const raw = line.slice(5).trim()
           if (!raw) continue
-          let data: { delta?: string; reasoning?: string; error?: string; done?: boolean }
+          let data: { delta?: string; reasoning?: string; error?: string; done?: boolean; usage?: UsageStats }
           try {
             data = JSON.parse(raw)
           } catch {
@@ -150,6 +160,8 @@ export async function streamChat(
           if (data.error) throw new Error(data.error)
           if (typeof data.reasoning === 'string' && data.reasoning) handlers.onReasoning?.(data.reasoning)
           if (typeof data.delta === 'string' && data.delta) handlers.onDelta(data.delta)
+          // 只接受归一化后的结构；旧版后端转发的是原始 usage（prompt_tokens），直接忽略
+          if (data.usage && typeof data.usage.promptTokens === 'number') handlers.onUsage?.(data.usage)
         }
       }
     }
@@ -348,16 +360,26 @@ export const api = {
     }),
   fetchRemoteModels: (id: string, apiKey?: string) =>
     request<{ models: string[] }>(`/providers/${id}/remote-models`, { method: 'POST', body: JSON.stringify({ apiKey }) }),
-  createModel: (payload: { providerId: string; name: string; displayName?: string; temperature?: number; maxTokens?: number; isDefault?: boolean }) =>
+  createModel: (payload: { providerId: string; name: string; displayName?: string; temperature?: number; maxTokens?: number; contextLength?: number; extraBody?: string; isDefault?: boolean }) =>
     request<Model>('/models', { method: 'POST', body: JSON.stringify(payload) }),
-  updateModel: (id: string, patch: { name?: string; displayName?: string; temperature?: number; maxTokens?: number; isDefault?: boolean }) =>
+  updateModel: (id: string, patch: { name?: string; displayName?: string; temperature?: number; maxTokens?: number; contextLength?: number; extraBody?: string; isDefault?: boolean }) =>
     request<Model>(`/models/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   deleteModel: (id: string) => request<{ ok: boolean }>(`/models/${id}`, { method: 'DELETE' }),
 
   // ---------- 对话记录 ----------
   listChatMessages: (projectId: string) => request<ChatMessage[]>(`/chat/messages?projectId=${q(projectId)}`),
-  saveChatMessage: (payload: { projectId: string; role: string; content: string; modelName?: string | null }) =>
+  saveChatMessage: (payload: { projectId: string; role: string; content: string; modelName?: string | null; usage?: UsageStats | null }) =>
     request<ChatMessage>('/chat/messages', { method: 'POST', body: JSON.stringify(payload) }),
   clearChatMessages: (projectId: string) =>
-    request<{ ok: boolean }>(`/chat/messages?projectId=${q(projectId)}`, { method: 'DELETE' })
+    request<{ ok: boolean }>(`/chat/messages?projectId=${q(projectId)}`, { method: 'DELETE' }),
+
+  // ---------- 用量统计 ----------
+  usageStats: (days = 30, projectId = '') =>
+    request<UsageStatsResult>(`/usage/stats?days=${days}${projectId ? `&projectId=${q(projectId)}` : ''}`),
+  usageLogs: (limit = 50, projectId = '') =>
+    request<UsageLog[]>(`/usage/logs?limit=${limit}${projectId ? `&projectId=${q(projectId)}` : ''}`),
+  clearUsageLogs: (projectId = '') =>
+    request<{ ok: boolean; deleted: number }>(`/usage/logs${projectId ? `?projectId=${q(projectId)}` : ''}`, {
+      method: 'DELETE'
+    })
 }

@@ -1,7 +1,7 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { api, streamChat } from '../api/client'
-import type { ChatMessage } from '../api/types'
+import type { ChatMessage, UsageStats } from '../api/types'
 import { useSettingsStore } from './settings'
 
 export const useChatStore = defineStore('chat', () => {
@@ -75,6 +75,7 @@ export const useChatStore = defineStore('chat', () => {
       role: 'assistant',
       content: '',
       modelName: model.name,
+      usage: null,
       createdAt: new Date().toISOString()
     }
     messages.value.push(assistant)
@@ -93,9 +94,10 @@ export const useChatStore = defineStore('chat', () => {
     sending.value = true
     thinking.value = ''
     controller = new AbortController()
+    let usage: UsageStats | null = null
     try {
       await streamChat(
-        { modelId: model.id, messages: payloadMessages },
+        { modelId: model.id, messages: payloadMessages, projectId: pid, scene: 'chat' },
         {
           onDelta: (delta) => {
             if (projectId.value !== pid) return
@@ -105,6 +107,12 @@ export const useChatStore = defineStore('chat', () => {
           onReasoning: (delta) => {
             if (projectId.value !== pid) return
             thinking.value += delta
+          },
+          onUsage: (value) => {
+            usage = value
+            if (projectId.value !== pid) return
+            const target = messages.value[index]
+            if (target) target.usage = value
           }
         },
         controller.signal
@@ -124,7 +132,7 @@ export const useChatStore = defineStore('chat', () => {
         messages.value.splice(index, 1)
       } else {
         api
-          .saveChatMessage({ projectId: pid, role: 'assistant', content: finalContent, modelName: model.name })
+          .saveChatMessage({ projectId: pid, role: 'assistant', content: finalContent, modelName: model.name, usage })
           .then((saved) => {
             const target = messages.value[index]
             if (target) target.id = saved.id

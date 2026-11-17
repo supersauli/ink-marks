@@ -40,6 +40,10 @@ npm start     # 构建前端 + 启动服务，只有这一个地址
 
 后端以 OpenAI 兼容接口请求模型，API Key 只保存在本地 SQLite，不会暴露给浏览器端请求。
 
+**接商汤 SenseNova**：设置里已内置「SenseNova（商汤）」预设。Base URL 必须是 `https://token.sensenova.cn/v1` —— **不是** `platform.sensenova.cn/docs`（那是文档页），也不是老平台的 `api.sensenova.cn/compatible-mode/v2`（那套要 API_TOKEN，不认 `sk-` 开头的 Key）。Key 用控制台里 `sk-` 开头的那把，模型名要写完整 ID，例如 `sensenova-6.8-flash-lite`、`deepseek-flash`、`glm-5.2`；点「拉取模型列表」能看到全部。这些模型默认开启深度思考，会先吐一大段 reasoning 再给正文，容易把「最大 tokens」默认额度吃光，看起来像没有回复；建议在该模型的「额外请求参数」里填 `{"reasoning_effort":"none"}` 关闭，并适当调大「最大 tokens」。上下文窗口按实测值填（Flash 系列 262144，DeepSeek / GLM / Kimi 系列 1048576）。
+
+模型的「额外请求参数」是一个 JSON 对象，会合并进发给服务商的请求体，用来处理 `reasoning_effort`、`top_p` 这类兼容差异；`model` / `messages` / `stream` 由系统固定，不会被覆盖。格式不合法时保存会直接报错。
+
 ### 本地 Ollama
 
 - Base URL 填 `http://localhost:11434/v1`（必须带 `/v1`），API Key 留空或随便填一个占位值；
@@ -153,6 +157,16 @@ npm start     # 构建前端 + 启动服务，只有这一个地址
 - 建议写「视角与人称、句子长短、情绪表达方式、禁用词与 AI 腔、标点习惯」，剧情设定仍放全书大纲；
 - 写作风格**不会**写进导出文件（导出只给读者看正文）；作品简介默认也不导出。
 
+## Vim 编辑模式
+
+正文段落、章节标题与摘要、全书大纲标题与内容、写作风格等编辑区都支持 Vim 键位，并可在普通输入与 Vim 模式之间随时切换：
+
+- 每个编辑区右上角有一个小开关（默认隐藏，鼠标移入编辑区时显示；开启后常驻）。标签显示当前模式：`OFF` 表示普通输入，`NORMAL / INSERT / VISUAL / V-LINE / V-BLOCK` 表示 Vim 下的对应模式；
+- 点击开关即可在该编辑区独立切换，选择按编辑区持久保存（存在浏览器 localStorage），关闭后内容原样保留；
+- 常用键位：`i` 进入插入、`Esc` 回普通模式，`h j k l` 移动，`0 / $ / w / b` 跳转，`dd` 删行、`yy / p` 复制粘贴、`u` 撤销，`o / O` 新开一行，`v / V` 可视模式；
+- 标题等单行编辑区不会插入换行；在正文里选中文字（含 Vim 可视模式）会弹出「改写 / 继续追问」气泡；
+- 设置弹窗 →「编辑器」页签里可以打开「新编辑区默认开启 Vim」，让尚未单独设置过的编辑区默认用 Vim；已单独切换过的编辑区不受影响。
+
 ## 版本控制
 
 - 手动保存：章节/大纲/角色编辑器里的「历史版本」
@@ -173,14 +187,29 @@ npm start     # 构建前端 + 启动服务，只有这一个地址
 - 导出前会先冲刷所有防抖中的编辑，保证拿到的是最新正文；
 - 文件名形如 `裂隙回响_全本_2026-11-06.txt`、`裂隙回响_第一章 醒来的人_2026-11-06.md`。
 
+## 用量统计
+
+每次 AI 返回后，后端会把模型上报的用量统一归一化并写入 `llm_usage_logs`，覆盖对话、段落精修、续写、大纲等所有走 `POST /api/chat/stream` 的场景：
+
+- **token 消耗**：输入 / 输出 / 合计，显示在每条 AI 回复下方与精修弹窗底部；批量改写会把多次请求累加成一次「本次生成」的总账；
+- **生成速率**：输出 token ÷ 本次调用耗时（从请求发出到流结束，含首字等待），显示成 `xx.x tok/s`；悬停可看总耗时、首字延迟，以及「首字后」的纯生成速度。批量改写按「总输出 ÷ 总耗时」重算，统计页另给按耗时加权的平均速率。旧记录没有耗时字段会自动跳过，不影响平均值；
+- **缓存命中率**：命中 token ÷ 输入 token。兼容 DeepSeek（`prompt_cache_hit_tokens`）、OpenAI（`prompt_tokens_details.cached_tokens`）与 Anthropic 风格字段；服务商不返回时显示「—」而不是 0%；
+- **上下文占用**：本次输入 token ÷ 模型上下文窗口，带进度条与「剩余可用」（已扣除为输出预留的 max_tokens）。窗口大小在「设置 → 服务商与模型 → 上下文长度」里配置，新模型按名称自动带出常见预设，可手动改；填 0 则不显示进度条。它与「最大 tokens」（生成上限）不是一回事；
+- **估算兜底**：本地模型 / 代理不返回 usage 时按字符数估算，界面标「估算」，统计页也会单独计数；
+- **统计页**：设置弹窗的「用量统计」标签，按 7 / 30 / 90 天查看总量、按模型 / 场景 / 每日汇总与最近调用，可只看当前作品或一键清空（清空不影响聊天记录）。
+
+聊天消息会把用量快照一并存下，刷新页面后历史回复仍能看到；精修类调用不产生聊天消息，因此单独记在用量表里。纯静态效果演示见 `preview/usage-preview.html`（不发起真实请求）。
+
 ## 数据与目录
 
 | 路径 | 说明 |
 | --- | --- |
-| `server/data/novel.db` | SQLite 数据库（作品、大纲、章节、段落、角色与性格阶段、角色技能 / 状态记录 / 角色关系、物品与状态记录、属性卡模板/属性值/成长记录、修改记录、版本、模型配置、对话记录） |
+| `server/data/novel.db` | SQLite 数据库（作品、大纲、章节、段落、角色与性格阶段、角色技能 / 状态记录 / 角色关系、物品与状态记录、属性卡模板/属性值/成长记录、修改记录、版本、模型配置、对话记录、AI 用量流水） |
 | `server/src/db.js` | 建表与示例数据 |
-| `server/src/routes/` | REST API（projects / outlines / chapters / characters / items / cards / overview / revisions / versions / providers / chat） |
+| `server/src/routes/` | REST API（projects / outlines / chapters / characters / items / cards / overview / revisions / versions / providers / chat / usage） |
 | `server/src/llm.js` | OpenAI 兼容接口地址与鉴权处理 |
+| `server/src/usage.js` | 各服务商 usage 字段归一化、上下文窗口预设、字符数估算 |
+| `server/src/routes/usage.js` | 用量汇总 / 明细 / 清空接口 |
 | `web/src/stores/novel.ts` | 作品、大纲、章节、角色、物品、属性卡、段落、版本、选区状态与自动保存 |
 | `web/src/stores/settings.ts` | 服务商、模型、当前模型 |
 | `web/src/stores/chat.ts` | 对话记录与流式输出 |
@@ -196,7 +225,9 @@ npm start     # 构建前端 + 启动服务，只有这一个地址
 
 ## 主要 API
 
-- `POST /api/chat/stream`：SSE 流式转发模型输出（前端不接触 Key）
+- `POST /api/chat/stream`：SSE 流式转发模型输出（前端不接触 Key）；可带 `projectId` / `scene` 记录用量，结束前会下发归一化后的 `usage` 事件
+- `GET /api/usage/stats?days=&projectId=`：用量汇总（总量、按模型 / 场景 / 每日分组、最近调用）
+- `GET /api/usage/logs?limit=&projectId=` / `DELETE /api/usage/logs?projectId=`：用量明细与清空
 - `GET /api/characters?projectId=`：角色列表（含全部性格阶段）
 - `POST /api/characters` / `PATCH /api/characters/:id`：新建 / 更新角色基本档案（含性别、登场时间、登场章节）
 - `POST /api/characters/:id/stages` / `PATCH /api/character-stages/:id`：新增 / 更新性格阶段

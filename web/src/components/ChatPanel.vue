@@ -9,6 +9,7 @@ import { buildContextSections } from '../utils/contextSections'
 import ContextInspector from './ContextInspector.vue'
 import { formatTime } from '../utils/format'
 import ModelSelect from './ModelSelect.vue'
+import UsageBadge from './UsageBadge.vue'
 
 const chat = useChatStore()
 const novel = useNovelStore()
@@ -310,6 +311,7 @@ watch(
             {{ message.content }}
             <span v-if="message.id === streamingId" class="cursor">▍</span>
           </div>
+          <UsageBadge v-if="message.role === 'assistant' && message.usage" :usage="message.usage" />
           <div v-if="message.role === 'assistant' && message.content" class="msg-actions">
             <button class="mini-link" @click="copyText(message.content)">复制</button>
             <button class="mini-link" @click="chat.draft = `基于下面的内容继续展开：\n\n${message.content}\n\n`">

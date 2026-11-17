@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useNovelStore } from '../stores/novel'
+import { useVimStore, vimKey } from '../stores/vim'
+import VimTextarea from './VimTextarea.vue'
 import { formatRelative } from '../utils/format'
 
 const novel = useNovelStore()
+const vim = useVimStore()
 
 const recentChapters = computed(() =>
   [...novel.chapters].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 5)
@@ -25,10 +28,22 @@ function editDescription() {
 
 // 作品级写作风格：失焦即保存，所有 AI 场景自动带上，不会被导出
 const styleSaved = ref(false)
+const styleGuideValue = ref(novel.project?.styleGuide ?? '')
 let styleTimer: number | null = null
 
-function onStyleChange(event: Event) {
-  const value = (event.target as HTMLTextAreaElement).value
+function onStyleGuideInput(value: string) {
+  styleGuideValue.value = value
+}
+
+// 切换作品时，让缓存值跟随新的 styleGuide
+watch(
+  () => novel.project?.styleGuide ?? '',
+  (value) => {
+    styleGuideValue.value = value
+  }
+)
+
+function onStyleChange(value: string) {
   if (value === (novel.project?.styleGuide ?? '')) return
   void novel.updateProject({ styleGuide: value })
   styleSaved.value = true
@@ -111,12 +126,15 @@ async function openLatestChapter(mode: 'chapterOutline' | 'chapter') {
           </div>
           <span class="style-state">{{ styleSaved ? '已保存' : '失焦自动保存' }}</span>
         </div>
-        <textarea
+        <VimTextarea
           class="style-input"
-          :value="novel.project.styleGuide"
-          rows="3"
+          :model-value="novel.project.styleGuide"
+          aria-label="写作风格"
           placeholder="例如：第三人称限知视角；句子偏短，少用形容词；不要直接写情绪，用动作和细节暗示；避免排比和 AI 腔套话。"
-          @change="onStyleChange"
+          :vim-enabled="vim.isEnabled(vimKey.styleGuide)"
+          :blur-handler="() => onStyleChange(styleGuideValue)"
+          @update:model-value="onStyleGuideInput"
+          @update:vim-enabled="vim.setEnabled(vimKey.styleGuide, $event)"
         />
       </section>
 
@@ -229,27 +247,22 @@ async function openLatestChapter(mode: 'chapterOutline' | 'chapter') {
   color: var(--muted);
 }
 .style-input {
+  --editor-font-family: var(--font-ui);
+  --editor-font-size: 12.5px;
+  --editor-line-height: 1.8;
+  --editor-color: var(--ink-soft);
+  --editor-padding: 10px 84px 10px 12px;
+  --editor-min-height: 76px;
   display: block;
   width: 100%;
-  min-height: 76px;
-  padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--surface);
   outline: none;
-  resize: vertical;
-  font-family: var(--font-ui);
-  font-size: 12.5px;
-  line-height: 1.8;
-  color: var(--ink-soft);
 }
-.style-input:focus {
+.style-input:focus-within {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
-}
-.style-input::placeholder {
-  color: var(--muted);
-  opacity: 0.7;
 }
 .onboard {
   display: flex;
