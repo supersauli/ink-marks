@@ -3,6 +3,7 @@ import { db } from '../db.js'
 import { mapModel, mapProvider } from '../mappers.js'
 import { newId, now, str, int, boolInt, trimTitle } from '../util.js'
 import { fetchRemoteModels } from '../llm.js'
+import { isKeyMask } from '../security.js'
 import { guessContextLength } from '../usage.js'
 
 const router = Router()
@@ -63,7 +64,8 @@ router.patch('/providers/:id', async (req, res) => {
   await db.prepare('UPDATE providers SET name = ?, base_url = ?, api_key = ?, api_type = ?, extra_headers = ?, updated_at = ? WHERE id = ?').run(
     body.name === undefined ? row.name : trimTitle(body.name, row.name),
     body.baseUrl === undefined ? row.base_url : str(body.baseUrl, row.base_url).trim(),
-    body.apiKey === undefined ? row.api_key : str(body.apiKey, row.api_key),
+    // 前端未改动 Key 时回传掩码占位符，此时保留原 Key，避免把掩码写进库
+    body.apiKey === undefined || isKeyMask(body.apiKey) ? row.api_key : str(body.apiKey, row.api_key),
     body.apiType === undefined ? row.api_type : str(body.apiType, row.api_type),
     body.extraHeaders === undefined ? row.extra_headers : str(body.extraHeaders, row.extra_headers),
     now(),
@@ -84,7 +86,9 @@ router.post('/providers/:id/remote-models', async (req, res, next) => {
     const row = await db.prepare('SELECT * FROM providers WHERE id = ?').get(req.params.id)
     if (!row) return res.status(404).json({ error: '服务商不存在' })
     const apiKey = req.body?.apiKey
-    const models = await fetchRemoteModels(row, typeof apiKey === 'string' && apiKey ? apiKey : undefined)
+    // 掩码占位符表示「用已保存的 Key」，传 undefined 让服务端取库里的真实值
+    const effectiveKey = isKeyMask(apiKey) ? undefined : (typeof apiKey === 'string' && apiKey ? apiKey : undefined)
+    const models = await fetchRemoteModels(row, effectiveKey)
     res.json({ models })
   } catch (error) {
     res.status(400).json({ error: error.message || '拉取模型列表失败' })
@@ -96,7 +100,9 @@ router.post('/providers/:id/test', async (req, res) => {
     const row = await db.prepare('SELECT * FROM providers WHERE id = ?').get(req.params.id)
     if (!row) return res.status(404).json({ error: '服务商不存在' })
     const apiKey = req.body?.apiKey
-    const models = await fetchRemoteModels(row, typeof apiKey === 'string' && apiKey ? apiKey : undefined)
+    // 掩码占位符表示「用已保存的 Key」，传 undefined 让服务端取库里的真实值
+    const effectiveKey = isKeyMask(apiKey) ? undefined : (typeof apiKey === 'string' && apiKey ? apiKey : undefined)
+    const models = await fetchRemoteModels(row, effectiveKey)
     res.json({ ok: true, count: models.length, models })
   } catch (error) {
     res.status(400).json({ ok: false, error: error.message || '连接失败' })

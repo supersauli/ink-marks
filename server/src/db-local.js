@@ -363,7 +363,7 @@ for (const row of await db.prepare('SELECT id, name FROM models WHERE context_le
 }
 
 async function seedProviders() {
-  const count = await db.prepare('SELECT COUNT(*) AS c FROM providers').get().c
+  const count = (await db.prepare('SELECT COUNT(*) AS c FROM providers').get()).c
   if (count > 0) return
 
   const seeds = [
@@ -402,7 +402,7 @@ async function seedProviders() {
 }
 
 async function seedDemoProject() {
-  const count = await db.prepare('SELECT COUNT(*) AS c FROM projects').get().c
+  const count = (await db.prepare('SELECT COUNT(*) AS c FROM projects').get()).c
   if (count > 0) return
 
   const projectId = newId()
@@ -474,7 +474,7 @@ async function seedDemoProject() {
 }
 
 async function seedDemoCharacters() {
-  const count = await db.prepare('SELECT COUNT(*) AS c FROM characters').get().c
+  const count = (await db.prepare('SELECT COUNT(*) AS c FROM characters').get()).c
   if (count > 0) return
   const project = await db
     .prepare("SELECT id FROM projects WHERE name LIKE '雾港来信%' ORDER BY created_at ASC LIMIT 1")
@@ -723,7 +723,7 @@ async function demoProjectId() {
 }
 
 async function seedDemoItems() {
-  const count = await db.prepare('SELECT COUNT(*) AS c FROM items').get().c
+  const count = (await db.prepare('SELECT COUNT(*) AS c FROM items').get()).c
   if (count > 0) return
   const projectId = await demoProjectId()
   if (!projectId) return
@@ -857,7 +857,7 @@ async function seedDemoItems() {
 }
 
 async function seedDemoAttributes() {
-  const count = await db.prepare('SELECT COUNT(*) AS c FROM attribute_values').get().c
+  const count = (await db.prepare('SELECT COUNT(*) AS c FROM attribute_values').get()).c
   if (count > 0) return
   const projectId = await demoProjectId()
   if (!projectId) return

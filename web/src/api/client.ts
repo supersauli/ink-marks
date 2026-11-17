@@ -36,11 +36,29 @@ import type {
 
 const BASE = '/api'
 
+// 访问令牌：公网部署时通过 ?token=xxx 传入一次，存会话期间复用。
+// 本地使用没有令牌，headers 保持原样，行为不变。
+const TOKEN_KEY = 'novel_access_token'
+function initToken(): void {
+  try {
+    const urlToken = new URLSearchParams(location.search).get('token')
+    if (urlToken) sessionStorage.setItem(TOKEN_KEY, urlToken)
+  } catch { /* localStorage 不可用时忽略 */ }
+}
+initToken()
+function authHeaders(): Record<string, string> {
+  try {
+    const token = sessionStorage.getItem(TOKEN_KEY)
+    return token ? { Authorization: `Bearer ${token}` } : {}
+  } catch { return {} }
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(BASE + path, {
     ...init,
     headers: {
       'Content-Type': 'application/json',
+      ...authHeaders(),
       ...(init.headers ?? {})
     }
   })
@@ -114,7 +132,7 @@ export async function streamChat(
   try {
     response = await fetch(`${BASE}/chat/stream`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify(payload),
       signal
     })

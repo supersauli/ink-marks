@@ -522,6 +522,7 @@ export interface Provider {
   name: string
   baseUrl: string
   apiKey: string
+  hasApiKey?: boolean
   apiType: string
   extraHeaders: string
   createdAt: string

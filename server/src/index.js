@@ -18,6 +18,7 @@ import versionsRouter from './routes/versions.js'
 import providersRouter from './routes/providers.js'
 import chatRouter from './routes/chat.js'
 import usageRouter from './routes/usage.js'
+import { checkAuth, authEnabled } from './security.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const app = express()
@@ -26,6 +27,13 @@ app.use(express.json({ limit: '8mb' }))
 
 app.get('/api/health', (req, res) => {
   res.json({ ok: true, time: new Date().toISOString() })
+})
+
+// 访问认证：仅当设置 NOVEL_ACCESS_TOKEN 时启用；本地未设置则完全放行。
+// health 已在上方面放行，这里保护其余全部 /api 接口。
+app.use('/api', (req, res, next) => {
+  if (!authEnabled() || checkAuth(req)) return next()
+  return res.status(401).json({ error: '需要访问令牌' })
 })
 
 app.use('/api/projects', projectsRouter)

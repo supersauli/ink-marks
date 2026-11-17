@@ -1,4 +1,5 @@
 import { parseObj } from './util.js'
+import { maskKey } from './security.js'
 
 export const mapProject = (row) => ({
   id: row.id,
@@ -233,7 +234,9 @@ export const mapProvider = (row) => ({
   id: row.id,
   name: row.name,
   baseUrl: row.base_url,
-  apiKey: row.api_key,
+  // 公网部署时绝不回传明文 Key；仅返回掩码与「是否已配置」标志
+  apiKey: maskKey(row.api_key),
+  hasApiKey: Boolean(row.api_key),
   apiType: row.api_type,
   extraHeaders: row.extra_headers,
   createdAt: row.created_at,
