@@ -9,12 +9,12 @@ directory = "./web/dist"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
 
-# D1 数据库：本地开发用 wrangler d1 migrations apply 初始化，
-# 部署前需创建数据库并把 database_id 填到这里（见 README 部署章节）。
+# D1 数据库：database_id 是已创建数据库的 UUID（非密钥，可入库）。
+# 首次部署前需执行一次远程迁移建表：npx wrangler d1 migrations apply ink-marks-db --remote
 [[d1_databases]]
 binding = "DB"
 database_name = "ink-marks-db"
-database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+database_id = "923fb3ab-4e40-4237-bade-d2ec27509cf3"
 migrations_dir = "worker/migrations"
 
 # 把业务路由文件里的 'express' 映射到 Workers 兼容的极简 Router。

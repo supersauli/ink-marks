@@ -228,25 +228,60 @@ npm start     # 构建前端 + 启动服务，只有这一个地址
 
 ## 部署到 Cloudflare（Workers + D1）
 
-项目已做好运行时兼容：同一套业务代码，本地跑 Express + node:sqlite，云端跑 Workers + D1。前端构建产物由 Cloudflare 静态托管，API 由 Worker 处理。
+项目已做好运行时兼容：同一套业务代码，本地跑 Express + node:sqlite，云端跑 Workers + D1。前端产物由 Worker 的 Assets 绑定托管，API 由同一个 Worker 处理。
 
-**部署步骤**：
+`wrangler.toml` 里已填好 D1 的 `database_id`，对应数据库 `ink-marks-db`。该值不是密钥，可安全入库。
 
-1. 安装依赖并构建前端：`npm install && npm run build`
-2. 创建 D1 数据库：`npx wrangler d1 create ink-marks-db`，把返回的 `database_id` 填入 `wrangler.toml` 的 `database_id`
-3. 初始化表结构：`npx wrangler d1 migrations apply ink-marks-db --remote`
-4. 迁移已有数据（可选）：把本地 `novel.db` 用 `sqlite3` 导出为 SQL，再通过 `npx wrangler d1 execute ink-marks-db --remote --file=dump.sql` 导入
-5. 设置访问令牌（重要）：`npx wrangler secret put NOVEL_ACCESS_TOKEN`，用一个长随机字符串
-6. 部署：`npx wrangler deploy`
+### 方式 A：Cloudflare Pages 自动部署（推送即部署）
 
-**访问方式**：部署后用 `https://你的域名/?token=你的令牌` 打开一次，令牌会存进浏览器会话，之后正常访问即可。不带/带错令牌访问 API 会返回 401。
+在 Pages 项目里配置：
 
-**安全说明**：
-- API Key 只存服务端（本地 db / 云端 D1），接口只返回掩码，不回传明文
-- 务必设置 `NOVEL_ACCESS_TOKEN`；不设则 API 完全公开，任何人可读写你的数据并使用你的模型额度
-- 本地开发默认不启用认证，行为与之前一致
+- 构建命令：`npm run build`
+- 部署命令：`npx wrangler deploy`
 
-**本地模拟 Workers**（验证用）：`npx wrangler d1 migrations apply ink-marks-db --local` 然后 `npx wrangler dev --local`
+推送代码后 Pages 会自动构建并部署。**Pages 在此只作为 CI/CD 运行器**，实际部署产物是一个名为 `ink-marks` 的 Worker，访问地址是 `https://ink-marks.<你的账号子域>.workers.dev`，不是 `*.pages.dev`。
+
+### 部署后必做的两步（否则 API 会报错）
+
+1. **远程建表**（只需一次）：
+   ```
+   npx wrangler d1 migrations apply ink-marks-db --remote
+   ```
+   跳过这步，接口会报 `no such table`。也可在 Dashboard → D1 → `ink-marks-db` → Console 里手动执行 `worker/migrations/0001_init.sql`。
+
+2. **设置访问令牌**（重要）：
+   ```
+   npx wrangler secret put NOVEL_ACCESS_TOKEN
+   ```
+   或在 Dashboard → Workers & Pages → `ink-marks` → Settings → Variables and Secrets → Add secret 中添加。不设则 API 完全公开，任何人可读写你的数据并使用你的模型额度。
+
+### 迁移本地已有数据（可选）
+
+把本地 `novel.db` 导出为 SQL 再导入 D1：
+```
+sqlite3 server/data/novel.db .dump > dump.sql
+npx wrangler d1 execute ink-marks-db --remote --file=dump.sql
+```
+
+### 方式 B：本地 CLI 部署
+
+```
+npm install && npm run build
+npx wrangler d1 migrations apply ink-marks-db --remote
+npx wrangler secret put NOVEL_ACCESS_TOKEN
+npx wrangler deploy
+```
+
+### 访问方式
+
+用 `https://你的域名/?token=你的令牌` 打开一次，令牌会存进浏览器会话，之后正常访问即可。不带/带错令牌访问 API 返回 401。
+
+### 本地模拟 Workers（验证用）
+
+```
+npx wrangler d1 migrations apply ink-marks-db --local
+npx wrangler dev --local
+```
 
 > 提示：云端 Workers 无法访问 `localhost:11434` 这类本机 Ollama 服务。若要继续用本地模型，请改用 Cloudflare Tunnel 方案（数据不出本机），或把模型换成可从公网访问的端点。
 
