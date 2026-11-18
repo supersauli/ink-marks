@@ -1,6 +1,8 @@
 const puppeteer = require('puppeteer-core')
 const CHROME = 'C:/Program Files/Google/Chrome/Application/chrome.exe'
 
+const TARGET = process.argv[2] || 'http://127.0.0.1:8787/'
+
 ;(async () => {
   const browser = await puppeteer.launch({ executablePath: CHROME, headless: 'new', args: ['--no-sandbox', '--disable-dev-shm-usage'] })
   const page = await browser.newPage()
@@ -8,7 +10,7 @@ const CHROME = 'C:/Program Files/Google/Chrome/Application/chrome.exe'
   page.on('pageerror', (e) => errors.push('PAGEERROR: ' + e.message))
   page.on('console', (m) => { if (m.type() === 'error') errors.push('CONSOLE: ' + m.text()) })
 
-  await page.goto('http://127.0.0.1:8787/', { waitUntil: 'networkidle2', timeout: 30000 })
+  await page.goto(TARGET, { waitUntil: 'networkidle2', timeout: 60000 })
   await new Promise((r) => setTimeout(r, 1200))
 
   // 侧栏文本（点击前）
