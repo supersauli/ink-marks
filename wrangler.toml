@@ -13,7 +13,7 @@ not_found_handling = "single-page-application"
 # 首次部署前需执行一次远程迁移建表：npx wrangler d1 migrations apply ink-marks-db --remote
 [[d1_databases]]
 binding = "DB"
-database_name = "ink-marks-db"
+database_name = "story"
 database_id = "923fb3ab-4e40-4237-bade-d2ec27509cf3"
 migrations_dir = "worker/migrations"
 

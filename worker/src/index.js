@@ -16,7 +16,13 @@ async function ensureSchema(DB) {
       const probe = await DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='settings'").first()
       if (!probe) {
         // 逐条执行幂等 DDL（D1 的 exec 对多语句解析有限制）
-        for (const sql of SCHEMA_STATEMENTS) await DB.prepare(sql).run()
+        for (let i = 0; i < SCHEMA_STATEMENTS.length; i++) {
+          try {
+            await DB.prepare(SCHEMA_STATEMENTS[i]).run()
+          } catch (e) {
+            throw new Error(`第 ${i + 1}/${SCHEMA_STATEMENTS.length} 条建表语句失败: ${e.message}`)
+          }
+        }
       }
     })().catch((e) => {
       schemaReady = null // 失败则下次请求重试
@@ -63,7 +69,16 @@ export default {
     const url = new URL(request.url)
 
     if (url.pathname === '/api/health') {
-      return new Response(JSON.stringify({ ok: true, time: new Date().toISOString() }), {
+      // 自检：确认 D1 绑定可用、表已建好。无认证，便于部署后快速诊断。
+      let dbInfo
+      try {
+        const probe = await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='settings'").first()
+        const tables = await env.DB.prepare("SELECT COUNT(*) AS c FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").first()
+        dbInfo = { ok: true, schemaReady: Boolean(probe), tables: tables?.c ?? 0 }
+      } catch (e) {
+        dbInfo = { ok: false, error: e.message }
+      }
+      return new Response(JSON.stringify({ ok: true, time: new Date().toISOString(), db: dbInfo }), {
         headers: { 'content-type': 'application/json; charset=utf-8' }
       })
     }
