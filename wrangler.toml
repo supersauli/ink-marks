@@ -2,7 +2,7 @@ name = "ink-marks"
 main = "worker/src/index.js"
 compatibility_date = "2026-11-17"
 compatibility_flags = ["nodejs_compat"]
-
+workers_dev = true      # 确保启用 workers.dev
 # 前端静态资源：构建后的 web/dist。Workers 负责 /api，其余交给 Pages assets。
 [assets]
 directory = "./web/dist"
