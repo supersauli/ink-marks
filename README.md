@@ -241,19 +241,17 @@ npm start     # 构建前端 + 启动服务，只有这一个地址
 
 推送代码后 Pages 会自动构建并部署。**Pages 在此只作为 CI/CD 运行器**，实际部署产物是一个名为 `ink-marks` 的 Worker，访问地址是 `https://ink-marks.<你的账号子域>.workers.dev`，不是 `*.pages.dev`。
 
-### 部署后必做的两步（否则 API 会报错）
+### 部署后必做的一步：设置访问令牌
 
-1. **远程建表**（只需一次）：
-   ```
-   npx wrangler d1 migrations apply ink-marks-db --remote
-   ```
-   跳过这步，接口会报 `no such table`。也可在 Dashboard → D1 → `ink-marks-db` → Console 里手动执行 `worker/migrations/0001_init.sql`。
+**建表已自动化，无需手动操作**：Worker 在首次收到 API 请求时会自动检测并创建全部 22 张表和 20 个索引（幂等，重复执行安全）。所以推送代码后不用跑迁移命令，也不用去 D1 Console 执行 SQL。
 
-2. **设置访问令牌**（重要）：
-   ```
-   npx wrangler secret put NOVEL_ACCESS_TOKEN
-   ```
-   或在 Dashboard → Workers & Pages → `ink-marks` → Settings → Variables and Secrets → Add secret 中添加。不设则 API 完全公开，任何人可读写你的数据并使用你的模型额度。
+只需设置访问令牌（重要）：
+```
+npx wrangler secret put NOVEL_ACCESS_TOKEN
+```
+或在 Dashboard → Workers & Pages → `ink-marks` → Settings → Variables and Secrets → Add secret 中添加。不设则 API 完全公开，任何人可读写你的数据并使用你的模型额度。
+
+> `worker/migrations/0001_init.sql` 仍保留，作为数据库结构的权威定义；自动建表用的就是由它生成的幂等语句（`worker/src/schema.js`）。若将来手动改了表结构，记得同步更新这个文件。
 
 ### 迁移本地已有数据（可选）
 
@@ -267,10 +265,10 @@ npx wrangler d1 execute ink-marks-db --remote --file=dump.sql
 
 ```
 npm install && npm run build
-npx wrangler d1 migrations apply ink-marks-db --remote
 npx wrangler secret put NOVEL_ACCESS_TOKEN
 npx wrangler deploy
 ```
+（首次部署会自动建表；`npx wrangler d1 migrations apply ink-marks-db --remote` 可选，用于显式同步结构。）
 
 ### 访问方式
 

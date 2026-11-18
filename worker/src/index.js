@@ -5,6 +5,26 @@ import { setDriver } from '../../server/src/db-adapter.js'
 import { createD1Driver } from './d1-driver.js'
 import { Router, collectRoutes } from './express-shim.js'
 import { handleRequest } from './http.js'
+import { SCHEMA_STATEMENTS } from './schema.js'
+
+// 首次请求自动建表：用 settings 表作哨兵。Promise 缓存保证同一 isolate 内只探测一次；
+// 多 isolate 并发时靠建表语句的 IF NOT EXISTS 保证幂等。
+let schemaReady = null
+async function ensureSchema(DB) {
+  if (!schemaReady) {
+    schemaReady = (async () => {
+      const probe = await DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='settings'").first()
+      if (!probe) {
+        // 逐条执行幂等 DDL（D1 的 exec 对多语句解析有限制）
+        for (const sql of SCHEMA_STATEMENTS) await DB.prepare(sql).run()
+      }
+    })().catch((e) => {
+      schemaReady = null // 失败则下次请求重试
+      throw e
+    })
+  }
+  return schemaReady
+}
 
 // 导入全部业务路由（它们 import 的是 db-adapter 统一入口，不触碰 node:sqlite）
 import projectsRouter from '../../server/src/routes/projects.js'
@@ -72,6 +92,16 @@ export default {
     }
 
     if (url.pathname.startsWith('/api/')) {
+      // 认证通过后才建表，且只做一次；失败直接暴露，便于排查
+      try {
+        await ensureSchema(env.DB)
+      } catch (e) {
+        console.error('[schema] 自动建表失败', e)
+        return new Response(JSON.stringify({ error: '数据库初始化失败：' + e.message }), {
+          status: 500,
+          headers: { 'content-type': 'application/json; charset=utf-8' }
+        })
+      }
       return handleRequest(request, allRoutes)
     }
 
