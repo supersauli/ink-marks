@@ -69,7 +69,7 @@ router.get('/card-templates', async (req, res) => {
   if (!projectId) return res.status(400).json({ error: '缺少 projectId' })
   const project = await db.prepare('SELECT id FROM projects WHERE id = ?').get(projectId)
   if (!project) return res.status(404).json({ error: '作品不存在' })
-  res.json(listTemplates(projectId))
+  res.json(await listTemplates(projectId))
 })
 
 router.get('/card-templates/:id', async (req, res) => {
