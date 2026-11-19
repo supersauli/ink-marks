@@ -21,6 +21,8 @@ import type {
   ItemBasic,
   ItemEventInput,
   ItemField,
+  Note,
+  NoteScope,
   OutlineItem,
   OverviewData,
   Project,
@@ -48,7 +50,7 @@ export interface VersionTargetInfo {
   title: string
 }
 
-export type DocTabType = 'welcome' | 'overview' | 'outline' | 'character' | 'item' | 'template' | 'chapter'
+export type DocTabType = 'welcome' | 'overview' | 'outline' | 'character' | 'item' | 'template' | 'note' | 'chapter'
 
 export interface DocTab {
   key: string
@@ -68,6 +70,9 @@ export const useNovelStore = defineStore('novel', () => {
   const characters = ref<Character[]>([])
   const items = ref<ItemBasic[]>([])
   const templates = ref<CardTemplate[]>([])
+  // 记事本：本书记事随作品切换，全局随手记跨作品保留。
+  const projectNotes = ref<Note[]>([])
+  const globalNotes = ref<Note[]>([])
 
   const mode = ref<EditorMode>('welcome')
   const openTabs = ref<DocTab[]>([{ key: 'welcome', type: 'welcome', targetId: '' }])
@@ -76,6 +81,8 @@ export const useNovelStore = defineStore('novel', () => {
   const activeChapterId = ref('')
   const activeCharacterId = ref('')
   const activeItemId = ref('')
+  const activeNoteId = ref('')
+  const noteScope = ref<NoteScope>('project')
   const templateKind = ref<TemplateKind>('character')
   const chapter = ref<ChapterDetail | null>(null)
   const chapterLoading = ref(false)
@@ -122,6 +129,15 @@ export const useNovelStore = defineStore('novel', () => {
     () => characters.value.find((item) => item.id === activeCharacterId.value) ?? null
   )
   const activeItem = computed(() => item.value)
+  const activeNote = computed(
+    () =>
+      projectNotes.value.find((entry) => entry.id === activeNoteId.value) ??
+      globalNotes.value.find((entry) => entry.id === activeNoteId.value) ??
+      null
+  )
+  const notesForCurrentScope = computed(() =>
+    noteScope.value === 'project' ? projectNotes.value : globalNotes.value
+  )
   const characterTemplate = computed(() => templates.value.find((entry) => entry.kind === 'character') ?? null)
   const itemTemplate = computed(() => templates.value.find((entry) => entry.kind === 'item') ?? null)
   const activeTemplate = computed(() =>
@@ -235,6 +251,8 @@ export const useNovelStore = defineStore('novel', () => {
     string,
     { entityType: TemplateKind; entityId: string; fieldId: string; value: string }
   >()
+  const noteTimers = new Map<string, number>()
+  const notePending = new Map<string, { title?: string; content?: string }>()
 
   function refreshWordCount(meta: ChapterDetail) {
     const count = meta.blocks.reduce((sum, block) => sum + countChars(block.text), 0)
@@ -469,6 +487,28 @@ export const useNovelStore = defineStore('novel', () => {
     }
   }
 
+  async function flushNote(noteId: string) {
+    const timer = noteTimers.get(noteId)
+    if (timer) {
+      window.clearTimeout(timer)
+      noteTimers.delete(noteId)
+    }
+    const patch = notePending.get(noteId)
+    if (!patch) return
+    notePending.delete(noteId)
+    try {
+      const updated = await api.updateNote(noteId, patch)
+      const projectIndex = projectNotes.value.findIndex((entry) => entry.id === noteId)
+      if (projectIndex >= 0) projectNotes.value[projectIndex] = updated
+      const globalIndex = globalNotes.value.findIndex((entry) => entry.id === noteId)
+      if (globalIndex >= 0) globalNotes.value[globalIndex] = updated
+      saveState.value = 'saved'
+    } catch (error) {
+      saveState.value = 'error'
+      setError(`记事本保存失败：${messageOf(error)}`)
+    }
+  }
+
   async function flushAll() {
     for (const blockId of [...blockPending.keys()]) await flushBlock(blockId)
     for (const outlineId of [...outlinePending.keys()]) await flushOutline(outlineId)
@@ -480,6 +520,7 @@ export const useNovelStore = defineStore('novel', () => {
     for (const templateId of [...templatePending.keys()]) await flushTemplate(templateId)
     for (const fieldId of [...fieldPending.keys()]) await flushField(fieldId)
     for (const key of [...attributePending.keys()]) await flushAttribute(key)
+    for (const noteId of [...notePending.keys()]) await flushNote(noteId)
   }
 
   function cancelPendingBlock(blockId: string) {
@@ -496,9 +537,11 @@ export const useNovelStore = defineStore('novel', () => {
     loading.value = true
     try {
       projects.value = await api.listProjects()
+      globalNotes.value = await api.listNotes('global')
       const saved = localStorage.getItem(PROJECT_KEY)
       const target = projects.value.find((item) => item.id === saved) ?? projects.value[0] ?? null
       if (target) await openProject(target.id)
+      else noteScope.value = 'global'
     } catch (error) {
       setError(`加载作品失败：${messageOf(error)}`)
     } finally {
@@ -516,6 +559,8 @@ export const useNovelStore = defineStore('novel', () => {
     activeChapterId.value = ''
     activeCharacterId.value = ''
     activeItemId.value = ''
+    activeNoteId.value = ''
+    noteScope.value = 'project'
     templateKind.value = 'character'
     chapter.value = null
     item.value = null
@@ -523,6 +568,7 @@ export const useNovelStore = defineStore('novel', () => {
     characters.value = []
     items.value = []
     templates.value = []
+    projectNotes.value = []
     attributeValues.value = []
     attributeLogs.value = []
     attributeEntity.value = null
@@ -534,6 +580,7 @@ export const useNovelStore = defineStore('novel', () => {
     templatePending.clear()
     fieldPending.clear()
     attributePending.clear()
+    notePending.clear()
     revisions.value = []
     versions.value = []
     versionsTarget.value = null
@@ -555,6 +602,8 @@ export const useNovelStore = defineStore('novel', () => {
       characters.value = await api.listCharacters(id)
       items.value = await api.listItems(id)
       templates.value = await api.listCardTemplates(id)
+      projectNotes.value = await api.listNotes('project', id)
+      globalNotes.value = await api.listNotes('global')
     } catch (error) {
       setError(`加载作品内容失败：${messageOf(error)}`)
     }
@@ -567,6 +616,8 @@ export const useNovelStore = defineStore('novel', () => {
     characters.value = await api.listCharacters(projectId.value)
     items.value = await api.listItems(projectId.value)
     templates.value = await api.listCardTemplates(projectId.value)
+    projectNotes.value = await api.listNotes('project', projectId.value)
+    globalNotes.value = await api.listNotes('global')
   }
 
   async function createProject(name: string) {
@@ -606,6 +657,9 @@ export const useNovelStore = defineStore('novel', () => {
         characters.value = []
         items.value = []
         templates.value = []
+        projectNotes.value = []
+        activeNoteId.value = ''
+        notePending.clear()
         overview.value = null
         item.value = null
         attributeValues.value = []
@@ -670,6 +724,7 @@ export const useNovelStore = defineStore('novel', () => {
     if (tab.type === 'character' && mode.value === 'character' && activeCharacterId.value === tab.targetId) return
     if (tab.type === 'item' && mode.value === 'item' && activeItemId.value === tab.targetId) return
     if (tab.type === 'template' && mode.value === 'template' && templateKind.value === tab.targetId) return
+    if (tab.type === 'note' && mode.value === 'note' && activeNoteId.value === tab.targetId) return
     if (tab.type === 'chapter' && chapter.value?.id === tab.targetId && activeChapterId.value === tab.targetId) {
       mode.value = tab.variant ?? 'chapter'
       focusBlockId.value = null
@@ -691,6 +746,9 @@ export const useNovelStore = defineStore('novel', () => {
         break
       case 'template':
         await openTemplate(tab.targetId as TemplateKind)
+        break
+      case 'note':
+        await selectNote(tab.targetId)
         break
       case 'chapter':
         await selectChapter(tab.targetId, tab.variant ?? 'chapter')
@@ -1161,6 +1219,93 @@ export const useNovelStore = defineStore('novel', () => {
       syncItemDetail(updated)
     } catch (error) {
       setError(`删除状态记录失败：${messageOf(error)}`)
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // 记事本（本书记事 / 全局随手记）
+  // ---------------------------------------------------------------------------
+  function notesOf(scope: NoteScope) {
+    return scope === 'project' ? projectNotes.value : globalNotes.value
+  }
+
+  async function selectNote(id: string) {
+    const target =
+      projectNotes.value.find((entry) => entry.id === id) ??
+      globalNotes.value.find((entry) => entry.id === id) ??
+      null
+    if (!target) return
+    await flushAll()
+    activeNoteId.value = id
+    noteScope.value = target.scope
+    mode.value = 'note'
+    ensureTab('note', id)
+  }
+
+  async function createNote(scope: NoteScope = noteScope.value) {
+    if (scope === 'project' && !projectId.value) {
+      setError('请先打开一部小说，再新建本书记事')
+      return null
+    }
+    try {
+      await flushAll()
+      const created = await api.createNote({
+        scope,
+        projectId: scope === 'project' ? projectId.value : undefined
+      })
+      notesOf(scope).push(created)
+      await selectNote(created.id)
+      return created
+    } catch (error) {
+      setError(`新建记事本失败：${messageOf(error)}`)
+      return null
+    }
+  }
+
+  function editNoteField(id: string, field: 'title' | 'content', value: string) {
+    const note =
+      projectNotes.value.find((entry) => entry.id === id) ??
+      globalNotes.value.find((entry) => entry.id === id) ??
+      null
+    if (!note || note[field] === value) return
+    note[field] = value
+    notePending.set(id, { ...(notePending.get(id) ?? {}), [field]: value })
+    saveState.value = 'saving'
+    const timer = noteTimers.get(id)
+    if (timer) window.clearTimeout(timer)
+    noteTimers.set(
+      id,
+      window.setTimeout(() => {
+        void flushNote(id)
+      }, 700)
+    )
+  }
+
+  async function deleteNote(id: string) {
+    const note =
+      projectNotes.value.find((entry) => entry.id === id) ??
+      globalNotes.value.find((entry) => entry.id === id) ??
+      null
+    if (!note) return
+    try {
+      await flushNote(id)
+      await api.deleteNote(id)
+      const scope = note.scope
+      projectNotes.value = projectNotes.value.filter((entry) => entry.id !== id)
+      globalNotes.value = globalNotes.value.filter((entry) => entry.id !== id)
+      notePending.delete(id)
+      await closeTabFor('note', id)
+      if (activeNoteId.value === id) {
+        activeNoteId.value = ''
+        const next = notesOf(scope)[0]
+        if (next) await selectNote(next.id)
+        else {
+          mode.value = 'welcome'
+          activeTabKey.value = 'welcome'
+        }
+      }
+    } catch (error) {
+      setError(`删除记事本失败：${messageOf(error)}`)
     }
   }
 
@@ -1870,6 +2015,9 @@ export const useNovelStore = defineStore('novel', () => {
     characters,
     items,
     templates,
+    projectNotes,
+    globalNotes,
+    notesForCurrentScope,
     mode,
     openTabs,
     activeTabKey,
@@ -1879,6 +2027,9 @@ export const useNovelStore = defineStore('novel', () => {
     activeChapterId,
     activeCharacterId,
     activeItemId,
+    activeNoteId,
+    noteScope,
+    activeNote,
     templateKind,
     activeOutline,
     activeCharacter,
@@ -1953,6 +2104,10 @@ export const useNovelStore = defineStore('novel', () => {
     addItemEvent,
     updateItemEvent,
     deleteItemEvent,
+    selectNote,
+    createNote,
+    editNoteField,
+    deleteNote,
     loadOverview,
     ensureOverview,
     openOverview,

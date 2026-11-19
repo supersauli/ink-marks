@@ -217,6 +217,17 @@ export const mapItemEvent = (row) => ({
   updatedAt: row.updated_at
 })
 
+export const mapNote = (row) => ({
+  id: row.id,
+  projectId: row.project_id ?? null,
+  scope: row.project_id ? 'project' : 'global',
+  title: row.title,
+  content: row.content,
+  sortOrder: row.sort_order,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at
+})
+
 export const mapModel = (row) => ({
   id: row.id,
   providerId: row.provider_id,

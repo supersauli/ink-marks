@@ -20,6 +20,8 @@ import type {
   ItemEventInput,
   ItemField,
   Model,
+  Note,
+  NoteScope,
   OutlineItem,
   OverviewData,
   Project,
@@ -310,6 +312,15 @@ export const api = {
   updateItemEvent: (eventId: string, payload: ItemEventInput) =>
     request<Item>(`/item-events/${eventId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   deleteItemEvent: (eventId: string) => request<Item>(`/item-events/${eventId}`, { method: 'DELETE' }),
+
+  // ---------- 记事本（本书记事 / 全局随手记） ----------
+  listNotes: (scope: NoteScope, projectId?: string) =>
+    request<Note[]>(`/notes?scope=${q(scope)}${projectId ? `&projectId=${q(projectId)}` : ''}`),
+  createNote: (payload: { scope: NoteScope; projectId?: string; title?: string }) =>
+    request<Note>('/notes', { method: 'POST', body: JSON.stringify(payload) }),
+  updateNote: (id: string, patch: { title?: string; content?: string; sortOrder?: number }) =>
+    request<Note>(`/notes/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  deleteNote: (id: string) => request<{ ok: boolean }>(`/notes/${id}`, { method: 'DELETE' }),
 
   // ---------- 人物总览 ----------
   getOverview: (projectId: string) => request<OverviewData>(`/overview?projectId=${q(projectId)}`),

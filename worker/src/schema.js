@@ -45,3 +45,9 @@ export const SCHEMA_STATEMENTS = [
   "CREATE INDEX IF NOT EXISTS idx_usage_created ON llm_usage_logs(created_at)",
   "CREATE INDEX IF NOT EXISTS idx_usage_project ON llm_usage_logs(project_id, created_at)"
 ]
+
+// 后续增量建表：即使 settings 哨兵已存在（老库）也会在首次请求时逐条幂等执行。
+export const MIGRATION_STATEMENTS = [
+  "CREATE TABLE IF NOT EXISTS notes (\n    id TEXT PRIMARY KEY,\n    project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,\n    title TEXT NOT NULL DEFAULT '',\n    content TEXT NOT NULL DEFAULT '',\n    sort_order INTEGER NOT NULL DEFAULT 0,\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL\n  )",
+  "CREATE INDEX IF NOT EXISTS idx_note_project ON notes(project_id, sort_order)"
+]

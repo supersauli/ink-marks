@@ -12,6 +12,7 @@ import chaptersRouter from './routes/chapters.js'
 import charactersRouter from './routes/characters.js'
 import cardsRouter from './routes/cards.js'
 import itemsRouter from './routes/items.js'
+import notesRouter from './routes/notes.js'
 import overviewRouter from './routes/overview.js'
 import revisionsRouter from './routes/revisions.js'
 import versionsRouter from './routes/versions.js'
@@ -42,6 +43,7 @@ app.use('/api', chaptersRouter)
 app.use('/api', charactersRouter)
 app.use('/api', cardsRouter)
 app.use('/api', itemsRouter)
+app.use('/api', notesRouter)
 app.use('/api', overviewRouter)
 app.use('/api', revisionsRouter)
 app.use('/api', versionsRouter)

@@ -5,7 +5,7 @@ import { setDriver } from '../../server/src/db-adapter.js'
 import { createD1Driver } from './d1-driver.js'
 import { Router, collectRoutes } from './express-shim.js'
 import { handleRequest } from './http.js'
-import { SCHEMA_STATEMENTS } from './schema.js'
+import { SCHEMA_STATEMENTS, MIGRATION_STATEMENTS } from './schema.js'
 
 // 首次请求自动建表：用 settings 表作哨兵。Promise 缓存保证同一 isolate 内只探测一次；
 // 多 isolate 并发时靠建表语句的 IF NOT EXISTS 保证幂等。
@@ -14,14 +14,13 @@ async function ensureSchema(DB) {
   if (!schemaReady) {
     schemaReady = (async () => {
       const probe = await DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='settings'").first()
-      if (!probe) {
-        // 逐条执行幂等 DDL（D1 的 exec 对多语句解析有限制）
-        for (let i = 0; i < SCHEMA_STATEMENTS.length; i++) {
-          try {
-            await DB.prepare(SCHEMA_STATEMENTS[i]).run()
-          } catch (e) {
-            throw new Error(`第 ${i + 1}/${SCHEMA_STATEMENTS.length} 条建表语句失败: ${e.message}`)
-          }
+      // 老库也要执行增量建表，因此 MIGRATION_STATEMENTS 每次都会跑（都带 IF NOT EXISTS）。
+      const statements = probe ? MIGRATION_STATEMENTS : [...SCHEMA_STATEMENTS, ...MIGRATION_STATEMENTS]
+      for (let i = 0; i < statements.length; i++) {
+        try {
+          await DB.prepare(statements[i]).run()
+        } catch (e) {
+          throw new Error(`第 ${i + 1}/${statements.length} 条建表语句失败: ${e.message}`)
         }
       }
     })().catch((e) => {
@@ -39,6 +38,7 @@ import chaptersRouter from '../../server/src/routes/chapters.js'
 import charactersRouter from '../../server/src/routes/characters.js'
 import cardsRouter from '../../server/src/routes/cards.js'
 import itemsRouter from '../../server/src/routes/items.js'
+import notesRouter from '../../server/src/routes/notes.js'
 import overviewRouter from '../../server/src/routes/overview.js'
 import revisionsRouter from '../../server/src/routes/revisions.js'
 import versionsRouter from '../../server/src/routes/versions.js'
@@ -53,6 +53,7 @@ const allRoutes = collectRoutes([
   { prefix: '/api', router: charactersRouter },
   { prefix: '/api', router: cardsRouter },
   { prefix: '/api', router: itemsRouter },
+  { prefix: '/api', router: notesRouter },
   { prefix: '/api', router: overviewRouter },
   { prefix: '/api', router: revisionsRouter },
   { prefix: '/api', router: versionsRouter },

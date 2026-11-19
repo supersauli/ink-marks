@@ -12,6 +12,7 @@ import OutlineEditor from './components/OutlineEditor.vue'
 import CharacterEditor from './components/CharacterEditor.vue'
 import ItemEditor from './components/ItemEditor.vue'
 import TemplateEditor from './components/TemplateEditor.vue'
+import NoteEditor from './components/NoteEditor.vue'
 import ChapterEditor from './components/ChapterEditor.vue'
 import ChatPanel from './components/ChatPanel.vue'
 import RefineDialog from './components/RefineDialog.vue'
@@ -75,8 +76,9 @@ onBeforeUnmount(() => {
 
       <main class="workspace">
         <DocTabs />
-        <WelcomePane v-if="novel.mode === 'welcome' || !novel.project" />
-        <OverviewEditor v-else-if="novel.mode === 'overview'" />
+        <WelcomePane v-if="novel.mode === 'welcome'" />
+        <NoteEditor v-else-if="novel.mode === 'note' && novel.activeNote" />
+        <OverviewEditor v-else-if="novel.project && novel.mode === 'overview'" />
         <OutlineEditor
           v-else-if="novel.mode === 'outline' && novel.activeOutline"
           :key="novel.activeOutline.id"

@@ -5,6 +5,7 @@ export type EditorMode =
   | 'character'
   | 'item'
   | 'template'
+  | 'note'
   | 'chapterOutline'
   | 'chapter'
 
@@ -336,6 +337,19 @@ export interface ItemBasic {
   createdAt: string
   updatedAt: string
 }
+
+export interface Note {
+  id: string
+  projectId: string | null
+  scope: 'project' | 'global'
+  title: string
+  content: string
+  sortOrder: number
+  createdAt: string
+  updatedAt: string
+}
+
+export type NoteScope = Note['scope']
 
 export interface ItemEvent {
   id: string

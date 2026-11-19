@@ -54,5 +54,7 @@ export const vimKey = {
   outlineTitle: 'outline:title',
   outlineContent: 'outline:content',
   styleGuide: 'project:style-guide',
+  noteTitle: 'note:title',
+  noteContent: 'note:content',
   block: (blockId: string) => `block:${blockId}`
 }

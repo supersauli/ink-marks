@@ -5,12 +5,33 @@ import type { ChapterMatchField, ChapterSearchResult, TemplateKind } from '../ap
 import { formatRelative, itemStatusLabels, statusLabels, templateKindLabels } from '../utils/format'
 
 const novel = useNovelStore()
-const navTab = ref<'outline' | 'character' | 'item' | 'chapter' | 'template'>('chapter')
+const navTab = ref<'outline' | 'character' | 'item' | 'chapter' | 'template' | 'note'>('chapter')
 
 const outlineCount = computed(() => novel.outlines.length)
 const characterCount = computed(() => novel.characters.length)
 const itemCount = computed(() => novel.items.length)
 const chapterCount = computed(() => novel.chapters.length)
+const noteCount = computed(() => novel.projectNotes.length + novel.globalNotes.length)
+
+// 记事本列表的「本书 / 全局」切换；打开某条记事时跟随它的实际范围。
+const noteListScope = ref<'project' | 'global'>('project')
+watch(
+  () => novel.noteScope,
+  (scope) => {
+    noteListScope.value = scope
+  }
+)
+const visibleNotes = computed(() =>
+  noteListScope.value === 'project' ? novel.projectNotes : novel.globalNotes
+)
+
+function removeNote(id: string) {
+  const entry = [...novel.projectNotes, ...novel.globalNotes].find((note) => note.id === id)
+  if (!entry) return
+  const target = entry.scope === 'project' ? '这部小说' : '全局'
+  if (!window.confirm(`删除${target}的记事「${entry.title || '未命名记事'}」？此操作无法恢复。`)) return
+  void novel.deleteNote(id)
+}
 
 // 章节分页：几百章时也能快速定位，默认每页 20 章
 const PAGE_SIZES = [10, 20, 50, 100]
@@ -201,6 +222,11 @@ function currentStageOf(character: { stages: Array<{ name: string; isCurrent: bo
         <span class="nav-label">模板</span>
         <span class="nav-count">{{ novel.templates.length }}</span>
       </button>
+      <button class="nav-btn" :class="{ active: navTab === 'note' }" @click="navTab = 'note'">
+        <span class="nav-icon">✎</span>
+        <span class="nav-label">记事</span>
+        <span class="nav-count">{{ noteCount }}</span>
+      </button>
     </nav>
 
     <div class="side-scroll scroll-y">
@@ -331,6 +357,68 @@ function currentStageOf(character: { stages: Array<{ name: string; isCurrent: bo
           </div>
           <div class="template-tip">
             模板决定属性卡上有哪些属性。人物和物品的当前值、成长记录都会跟着模板走。
+          </div>
+        </div>
+      </section>
+
+      <!-- 记事本 -->
+      <section v-if="navTab === 'note'" class="side-section">
+        <header class="panel-head">
+          <span class="section-name">记事本</span>
+          <button
+            class="add-btn"
+            :title="noteListScope === 'project' ? '新增本书记事' : '新增全局随手记'"
+            :disabled="noteListScope === 'project' && !novel.project"
+            @click="novel.createNote(noteListScope)"
+          >
+            ＋
+          </button>
+        </header>
+        <div class="note-scope-switch">
+          <button
+            class="scope-btn"
+            :class="{ active: noteListScope === 'project' }"
+            :disabled="!novel.project"
+            title="只属于当前小说"
+            @click="noteListScope = 'project'"
+          >
+            本书 <span class="scope-count">{{ novel.projectNotes.length }}</span>
+          </button>
+          <button
+            class="scope-btn"
+            :class="{ active: noteListScope === 'global' }"
+            title="所有小说共用"
+            @click="noteListScope = 'global'"
+          >
+            全局 <span class="scope-count">{{ novel.globalNotes.length }}</span>
+          </button>
+        </div>
+        <div class="section-body">
+          <div
+            v-for="entry in visibleNotes"
+            :key="entry.id"
+            class="note-row"
+            :class="{ active: novel.activeNoteId === entry.id && novel.mode === 'note' }"
+            @click="novel.selectNote(entry.id)"
+          >
+            <span class="note-mark">✎</span>
+            <div class="chapter-main">
+              <div class="row-title">{{ entry.title || '未命名记事' }}</div>
+              <div class="row-preview">{{ entry.content.trim() || '还没有内容，点开写点什么' }}</div>
+              <div class="row-meta">
+                <span>{{ entry.content.replace(/\s+/g, '').length }} 字</span>
+                <span v-if="entry.updatedAt">· {{ formatRelative(entry.updatedAt) }}</span>
+              </div>
+            </div>
+            <div class="row-actions">
+              <button class="mini" title="删除记事" @click.stop="removeNote(entry.id)">✕</button>
+            </div>
+          </div>
+          <div v-if="!visibleNotes.length" class="side-empty">
+            <p>{{ noteListScope === 'project' ? '这部小说还没有记事。' : '还没有全局随手记。' }}</p>
+            <button class="link-btn" @click="novel.createNote(noteListScope)">
+              {{ noteListScope === 'project' ? '新建本书记事' : '新建全局随手记' }}
+            </button>
           </div>
         </div>
       </section>
@@ -478,7 +566,7 @@ function currentStageOf(character: { stages: Array<{ name: string; isCurrent: bo
 
 .side-nav {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 2px;
   margin: 0 8px 6px;
   padding: 3px;
@@ -947,6 +1035,75 @@ function currentStageOf(character: { stages: Array<{ name: string; isCurrent: bo
 .pager-range {
   margin-left: auto;
   color: var(--muted);
+}
+
+.note-scope-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  margin: 0 12px 10px;
+  padding: 3px;
+  border-radius: 8px;
+  background: var(--surface-3);
+}
+.scope-btn {
+  padding: 5px 4px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+.scope-btn:hover:not(:disabled) {
+  color: var(--ink-soft);
+}
+.scope-btn.active {
+  background: var(--surface);
+  color: var(--accent);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+.scope-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.scope-count {
+  margin-left: 2px;
+  font-size: 10px;
+  opacity: 0.75;
+}
+
+.note-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.14s ease;
+}
+.note-row:hover {
+  background: var(--surface-3);
+}
+.note-row.active {
+  background: var(--accent-soft);
+}
+.note-mark {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.note-row.active .note-mark {
+  color: var(--accent);
+}
+.note-row .row-preview {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .side-foot {

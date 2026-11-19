@@ -261,3 +261,15 @@ CREATE TABLE llm_usage_logs (
   , duration_ms INTEGER NOT NULL DEFAULT 0, first_token_ms INTEGER);
 CREATE INDEX idx_usage_created ON llm_usage_logs(created_at);
 CREATE INDEX idx_usage_project ON llm_usage_logs(project_id, created_at);
+
+-- 记事本：project_id 为空表示全局记事，非空表示某部小说专属。
+CREATE TABLE IF NOT EXISTS notes (
+    id TEXT PRIMARY KEY,
+    project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+    title TEXT NOT NULL DEFAULT '',
+    content TEXT NOT NULL DEFAULT '',
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+CREATE INDEX IF NOT EXISTS idx_note_project ON notes(project_id, sort_order);

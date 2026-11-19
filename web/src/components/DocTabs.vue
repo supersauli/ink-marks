@@ -14,6 +14,7 @@ const icons: Record<DocTab['type'], string> = {
   character: '◈',
   item: '▣',
   template: '▤',
+  note: '✎',
   chapter: '§'
 }
 
@@ -31,6 +32,12 @@ function titleOf(tab: DocTab): string {
       return novel.items.find((entry) => entry.id === tab.targetId)?.name || '未命名物品'
     case 'template':
       return novel.templates.find((entry) => entry.kind === tab.targetId)?.name || templateKindLabels[tab.targetId] || '属性卡模板'
+    case 'note':
+      return (
+        novel.projectNotes.find((entry) => entry.id === tab.targetId)?.title ||
+        novel.globalNotes.find((entry) => entry.id === tab.targetId)?.title ||
+        '未命名记事'
+      )
     case 'chapter':
       return novel.chapters.find((entry) => entry.id === tab.targetId)?.title || '未命名章节'
   }
@@ -50,6 +57,12 @@ function subtitleOf(tab: DocTab): string {
     }
     case 'template':
       return '模板'
+    case 'note': {
+      const entry =
+        novel.projectNotes.find((item) => item.id === tab.targetId) ??
+        novel.globalNotes.find((item) => item.id === tab.targetId)
+      return entry?.scope === 'global' ? '全局' : '本书'
+    }
     case 'chapter':
       return novel.chapters.find((entry) => entry.id === tab.targetId)?.status === 'done' ? '已完成' : '章节'
     default:
